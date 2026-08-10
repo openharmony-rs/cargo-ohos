@@ -1,0 +1,11 @@
+[package]
+name = "cargo-ohos"
+description = "Cargo subcommand to cross-compile Rust for OpenHarmony"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/openharmony-rs/cargo-ohos"
+rust-version = "1.85"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
