@@ -68,10 +68,6 @@ impl Target {
         self.rust_triple_underscored().to_uppercase()
     }
 
-    pub fn clang_triple_underscored(&self) -> String {
-        self.clang_triple.replace('-', "_")
-    }
-
     pub fn extra_cflags(&self) -> Vec<String> {
         match self.arch {
             Arch::Armv7 => [

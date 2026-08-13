@@ -76,7 +76,6 @@ fn build_env_map(
     let mut env = BTreeMap::new();
     let rust = &target.rust_triple;
     let rust_u = target.rust_triple_underscored();
-    let clang_u = target.clang_triple_underscored();
     let clang = posix(&toolchain.clang);
     let clangxx = posix(&toolchain.clangxx);
 
@@ -84,7 +83,7 @@ fn build_env_map(
         env.insert(format!("{tool}_{rust}"), value.clone());
         env.insert(format!("{tool}_{rust_u}"), value.clone());
     }
-    env.insert(format!("CXXSTDLIB_{clang_u}"), "c++".to_owned());
+    env.insert(format!("CXXSTDLIB_{rust_u}"), "c++".to_owned());
 
     env.insert("TARGET_AR".to_owned(), posix(&toolchain.ar));
     env.insert("TARGET_RANLIB".to_owned(), posix(&toolchain.ranlib));
