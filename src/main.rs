@@ -53,8 +53,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     let Cmd::Cargo(args) = cli.command;
     let (options, rest) = split_cargo_args(args)?;
     match rest.first().map(|s| s.to_string_lossy()) {
-        Some(name) if name == "build" => {}
-        _ => return Err("only `cargo ohos build` is supported".to_owned()),
+        Some(name) if name == "build" || name == "rustc" => {}
+        _ => return Err("only `cargo ohos <build|rustc>` is supported".to_owned()),
     }
 
     let target = Target::parse(&options.target).map_err(|e| e.to_string())?;
@@ -62,7 +62,12 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 
     let mut argv: Vec<OsString> = vec!["cargo".into()];
     argv.extend(rest);
-    argv.push(format!("--target={}", build_env.target.rust_triple).into());
+    // The commandline may contain a `--` seperator, so we insert `--target` directly
+    // after the subcommand.
+    argv.insert(
+        2,
+        format!("--target={}", build_env.target.rust_triple).into(),
+    );
     spawn(&build_env, &argv)
 }
 
