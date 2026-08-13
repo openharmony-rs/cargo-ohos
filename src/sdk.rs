@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::build_env::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Sdk {
     pub native_root: PathBuf,
     pub sysroot: PathBuf,

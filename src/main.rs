@@ -3,11 +3,12 @@ mod sdk;
 mod target;
 mod toolchain;
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use build_env::BuildEnv;
 use target::Target;
@@ -29,13 +30,54 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Print the environment and run nothing.
+    Env {
+        #[command(flatten)]
+        options: CliOptions,
+        #[arg(long, value_enum, default_value_t = Format::Json)]
+        format: Format,
+    },
     #[command(external_subcommand)]
     Cargo(Vec<OsString>),
+}
+
+#[derive(Args)]
+struct CliOptions {
+    /// Rust triple (`aarch64-unknown-linux-ohos`) or short arch (`aarch64`, `armv7`, `x86_64`).
+    #[arg(short, long)]
+    target: Option<String>,
+    /// The `native` directory of the OpenHarmony SDK.
+    #[arg(long)]
+    sdk: Option<PathBuf>,
+}
+
+#[derive(Copy, Clone, ValueEnum)]
+enum Format {
+    Json,
+    Sh,
+    Powershell,
 }
 
 struct Options {
     target: String,
     sdk: Option<PathBuf>,
+}
+
+impl TryFrom<CliOptions> for Options {
+    type Error = String;
+
+    fn try_from(cli: CliOptions) -> Result<Self, String> {
+        let target = cli
+            .target
+            .or_else(|| std::env::var("CARGO_BUILD_TARGET").ok())
+            .ok_or_else(|| {
+                "no target given. Pass `-t aarch64` (or set `CARGO_BUILD_TARGET`).".to_owned()
+            })?;
+        Ok(Self {
+            target,
+            sdk: cli.sdk,
+        })
+    }
 }
 
 fn main() -> ExitCode {
@@ -57,7 +99,17 @@ const CARGO_SUBCOMMANDS: &[&str] = &[
 const TEST_RUNNER: &str = "ohos-test-runner";
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
-    let Cmd::Cargo(args) = cli.command;
+    let args = match cli.command {
+        Cmd::Env { options, format } => {
+            let options = Options::try_from(options)?;
+            let target = Target::parse(&options.target).map_err(|e| e.to_string())?;
+            let build_env =
+                build_env::derive(target, options.sdk.as_deref()).map_err(|e| e.to_string())?;
+            emit(&build_env, format);
+            return Ok(ExitCode::SUCCESS);
+        }
+        Cmd::Cargo(args) => args,
+    };
     let (options, rest) = split_cargo_args(args)?;
     let name = match rest.first().map(|s| s.to_string_lossy()) {
         Some(name) if CARGO_SUBCOMMANDS.contains(&name.as_ref()) => name.into_owned(),
@@ -156,7 +208,7 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(Options, Vec<OsString>), Str
     Ok((Options { target, sdk }, rest))
 }
 
-fn encoded_rustflags(build_env: &BuildEnv) -> String {
+fn plain_rustflags(build_env: &BuildEnv) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
     if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
         parts.extend(
@@ -169,7 +221,77 @@ fn encoded_rustflags(build_env: &BuildEnv) -> String {
         parts.extend(plain.split_whitespace().map(str::to_owned));
     }
     parts.extend(build_env.flags.rustflags.iter().cloned());
-    parts.join("\u{1f}")
+    parts
+}
+
+fn encoded_rustflags(build_env: &BuildEnv) -> String {
+    plain_rustflags(build_env).join("\u{1f}")
+}
+
+fn emit(build_env: &BuildEnv, format: Format) {
+    let mut env: BTreeMap<&str, String> = build_env
+        .env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.clone()))
+        .collect();
+    let mut warnings: Vec<String> = Vec::new();
+    match format {
+        Format::Json => {
+            env.insert("CARGO_ENCODED_RUSTFLAGS", encoded_rustflags(build_env));
+        }
+        Format::Sh | Format::Powershell => {
+            env.retain(|key, _| {
+                let mut chars = key.chars();
+                chars
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                    && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+            });
+            let flags = plain_rustflags(build_env);
+            if flags.iter().any(|f| f.contains(char::is_whitespace)) {
+                warnings.push(
+                    "A compiler flag contains whitespace, which `RUSTFLAGS` cannot represent. \
+                     Use `--format json` and `CARGO_ENCODED_RUSTFLAGS` instead."
+                        .to_owned(),
+                );
+            }
+            env.insert("RUSTFLAGS", flags.join(" "));
+        }
+    }
+
+    match format {
+        Format::Json => {
+            let value = serde_json::json!({
+                "schema_version": 1,
+                "sdk": build_env.sdk,
+                "target": build_env.target,
+                "toolchain": build_env.toolchain,
+                "flags": build_env.flags,
+                "env": env,
+                "warnings": warnings,
+            });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value).expect("serializable")
+            );
+        }
+        Format::Sh => {
+            for warning in &warnings {
+                println!("# warning: {warning}");
+            }
+            for (key, value) in &env {
+                println!("export {key}='{}'", value.replace('\'', r"'\''"));
+            }
+        }
+        Format::Powershell => {
+            for warning in &warnings {
+                println!("# warning: {warning}");
+            }
+            for (key, value) in &env {
+                println!("$env:{key} = '{}'", value.replace('\'', "''"));
+            }
+        }
+    }
 }
 
 fn spawn(build_env: &BuildEnv, argv: &[OsString]) -> Result<ExitCode, String> {

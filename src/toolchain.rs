@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::build_env::Error;
 use crate::sdk::Sdk;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Toolchain {
     pub clang: PathBuf,
     pub clangxx: PathBuf,

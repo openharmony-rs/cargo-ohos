@@ -6,7 +6,7 @@ use crate::sdk::Sdk;
 use crate::target::Target;
 use crate::toolchain::Toolchain;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct Flags {
     pub cflags: Vec<String>,
     pub ldflags: Vec<String>,
@@ -16,7 +16,9 @@ pub struct Flags {
 
 #[derive(Debug, Clone)]
 pub struct BuildEnv {
+    pub sdk: Sdk,
     pub target: Target,
+    pub toolchain: Toolchain,
     pub flags: Flags,
     pub env: BTreeMap<String, String>,
 }
@@ -56,7 +58,13 @@ pub fn derive(target: Target, sdk_dir: Option<&Path>) -> Result<BuildEnv, Error>
 
     let env = build_env_map(&sdk, &target, &toolchain, &flags);
 
-    Ok(BuildEnv { target, flags, env })
+    Ok(BuildEnv {
+        sdk,
+        target,
+        toolchain,
+        flags,
+        env,
+    })
 }
 
 fn build_env_map(
