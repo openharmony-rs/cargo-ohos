@@ -185,6 +185,12 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(Options, Vec<OsString>), Str
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
         let text = arg.to_string_lossy().into_owned();
+        // Everything after `--` belongs to cargo or the target binary.
+        if text == "--" {
+            rest.push(arg);
+            rest.extend(it);
+            break;
+        }
         let mut take = |name: &str| -> Result<OsString, String> {
             it.next()
                 .ok_or_else(|| format!("missing value after `{name}`"))
@@ -206,6 +212,27 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(Options, Vec<OsString>), Str
         "no target given. Pass `-t aarch64` (or set $CARGO_BUILD_TARGET).".to_owned()
     })?;
     Ok((Options { target, sdk }, rest))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_stops_at_double_dash() {
+        let args: Vec<OsString> = [
+            "test", "-t", "aarch64", "--", "--target", "foo", "--sdk", "x",
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect();
+        let (options, rest) = split_cargo_args(args).unwrap();
+        assert_eq!(options.target, "aarch64");
+        assert_eq!(
+            rest,
+            ["test", "--", "--target", "foo", "--sdk", "x"].map(OsString::from)
+        );
+    }
 }
 
 fn plain_rustflags(build_env: &BuildEnv) -> Vec<String> {
