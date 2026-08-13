@@ -12,8 +12,15 @@ pub struct Sdk {
     pub cmake_toolchain_file: Option<PathBuf>,
 }
 
-// TODO: also check the deveco variable.
-const ENV_CANDIDATES: &[&str] = &["OHOS_SDK_NATIVE", "OHOS_NDK_HOME", "OHOS_SDK_HOME"];
+const ENV_CANDIDATES: &[&str] = &[
+    "OHOS_SDK_NATIVE",
+    "OHOS_NDK_HOME",
+    "OHOS_SDK_HOME",
+    "DEVECO_SDK_HOME",
+];
+
+#[cfg(target_os = "macos")]
+const DEFAULT_DEVECO_SDK_HOME: &str = "/Applications/DevEco-Studio.app/Contents/sdk";
 
 impl Sdk {
     pub fn discover(explicit: Option<&Path>) -> Result<Self, Error> {
@@ -36,7 +43,14 @@ impl Sdk {
             tried.push(format!("${var} = {}", path.display()));
         }
 
-        // TODO: Also support checking default DevEco Studio installation locations on windows and macos.
+        #[cfg(target_os = "macos")]
+        if std::env::var_os("DEVECO_SDK_HOME").is_none() {
+            let path = Path::new(DEFAULT_DEVECO_SDK_HOME);
+            if let Some(sdk) = Self::from_candidate(path) {
+                return Ok(sdk);
+            }
+            tried.push(path.display().to_string());
+        }
 
         if tried.is_empty() {
             tried.push(format!("none of ${} are set", ENV_CANDIDATES.join(", $")));
@@ -44,11 +58,19 @@ impl Sdk {
         Err(Error::SdkNotFound { tried })
     }
 
+    // This is a very liberal check. The different environment variables we consider point to
+    // different places relative to the native directory. Instead of being strict we
+    // deliberately just try all options here, so things can work out in more cases.
+    // We can still reconsider if that causes issues, but this should make "it just works"
+    // more likely.
     fn from_candidate(path: &Path) -> Option<Self> {
         if let Some(sdk) = Self::load(path) {
             return Some(sdk);
         }
         if let Some(sdk) = Self::load(&path.join("native")) {
+            return Some(sdk);
+        }
+        if let Some(sdk) = Self::load(&path.join("default").join("openharmony").join("native")) {
             return Some(sdk);
         }
         Self::highest_api_level(path).and_then(|p| Self::load(&p))
@@ -115,4 +137,43 @@ fn exe(path: &Path) -> Option<PathBuf> {
         path.to_path_buf()
     };
     with_ext.is_file().then_some(with_ext)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    static NEXT_TEMP_DIR: AtomicUsize = AtomicUsize::new(0);
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            let id = NEXT_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir()
+                .join(format!("cargo-ohos-sdk-test-{}-{id}", std::process::id()));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn finds_native_sdk_in_deveco_sdk_home() {
+        let root = TestDir::new();
+        let native = root.0.join("default/openharmony/native");
+        std::fs::create_dir_all(native.join("llvm/bin")).unwrap();
+        std::fs::create_dir(native.join("sysroot")).unwrap();
+
+        let sdk = Sdk::from_candidate(&root.0).unwrap();
+
+        assert_eq!(sdk.native_root, native.canonicalize().unwrap());
+    }
 }

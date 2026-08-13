@@ -159,7 +159,7 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "Could not find the OpenHarmony native SDK. Point --sdk or $OHOS_SDK_NATIVE \
-                     at the `native` directory of the SDK. Tried: {}",
+                     at the `native` directory of the SDK, or set $DEVECO_SDK_HOME. Tried: {}",
                     tried.join("; ")
                 )
             }
