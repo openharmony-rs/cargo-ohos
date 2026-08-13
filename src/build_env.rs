@@ -9,6 +9,7 @@ use crate::toolchain::Toolchain;
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct Flags {
     pub cflags: Vec<String>,
+    pub cxxflags: Vec<String>,
     pub ldflags: Vec<String>,
     pub bindgen: Vec<String>,
     pub rustflags: Vec<String>,
@@ -27,18 +28,21 @@ pub fn derive(target: Target, sdk_dir: Option<&Path>) -> Result<BuildEnv, Error>
     let sdk = Sdk::discover(sdk_dir)?;
     let toolchain = Toolchain::resolve(&sdk)?;
 
+    let mut shared_cflags = vec![
+        format!("--target={}", target.clang_triple),
+        format!("--sysroot={}", posix(&sdk.sysroot)),
+    ];
+    shared_cflags.extend(target.extra_cflags());
+
     let mut flags = Flags {
-        cflags: vec![
-            format!("--target={}", target.clang_triple),
-            format!("--sysroot={}", posix(&sdk.sysroot)),
-        ],
+        cflags: shared_cflags.clone(),
+        cxxflags: shared_cflags,
         ldflags: vec!["-fuse-ld=lld".to_owned(), "-Wl,--build-id".to_owned()],
         bindgen: Vec::new(),
         rustflags: Vec::new(),
     };
-    flags.cflags.extend(target.extra_cflags());
 
-    flags.bindgen.extend(flags.cflags.iter().cloned());
+    flags.bindgen.extend(flags.cxxflags.iter().cloned());
     flags.bindgen.push(format!(
         "-I{}",
         posix(
@@ -92,7 +96,7 @@ fn build_env_map(
     env.insert("TARGET_READELF".to_owned(), posix(&toolchain.readelf));
 
     env.insert("TARGET_CFLAGS".to_owned(), flags.cflags.join(" "));
-    env.insert("TARGET_CXXFLAGS".to_owned(), flags.cflags.join(" "));
+    env.insert("TARGET_CXXFLAGS".to_owned(), flags.cxxflags.join(" "));
 
     env.insert(
         format!("CARGO_TARGET_{}_LINKER", target.rust_triple_upper()),
