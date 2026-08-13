@@ -295,7 +295,6 @@ fn emit(build_env: &BuildEnv, format: Format) {
                 "toolchain": build_env.toolchain,
                 "flags": build_env.flags,
                 "env": env,
-                "warnings": warnings,
             });
             println!(
                 "{}",
