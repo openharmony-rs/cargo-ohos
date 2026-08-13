@@ -87,6 +87,16 @@ fn build_env_map(
         env.insert(format!("{tool}_{rust}"), value.clone());
         env.insert(format!("{tool}_{rust_u}"), value.clone());
     }
+    // On macOS /usr/bin/cc and /usr/bin/c++ also pass the sdkroot and can
+    // successfully compile code for the host. When cross-compiling, e.g. via CMake
+    // `cc` (as resolved via PATH) may point to a cross-compiler wrapper, so
+    // setting HOST_CC and HOST_CXX to known good compilers avoids failures building
+    // host tools.
+    #[cfg(target_os = "macos")]
+    {
+        env.insert("HOST_CC".to_owned(), "/usr/bin/cc".to_owned());
+        env.insert("HOST_CXX".to_owned(), "/usr/bin/c++".to_owned());
+    }
     env.insert(format!("CXXSTDLIB_{rust_u}"), "c++".to_owned());
 
     env.insert("TARGET_AR".to_owned(), posix(&toolchain.ar));
