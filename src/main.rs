@@ -304,7 +304,7 @@ fn emit(build_env: &BuildEnv, format: Format) {
         }
         Format::Sh => {
             for warning in &warnings {
-                println!("# warning: {warning}");
+                eprintln!("# warning: {warning}");
             }
             for (key, value) in &env {
                 println!("export {key}='{}'", value.replace('\'', r"'\''"));
@@ -312,7 +312,7 @@ fn emit(build_env: &BuildEnv, format: Format) {
         }
         Format::Powershell => {
             for warning in &warnings {
-                println!("# warning: {warning}");
+                eprintln!("# warning: {warning}");
             }
             for (key, value) in &env {
                 println!("$env:{key} = '{}'", value.replace('\'', "''"));
