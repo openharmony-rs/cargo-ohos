@@ -50,24 +50,48 @@ fn main() -> ExitCode {
 }
 
 const CARGO_SUBCOMMANDS: &[&str] = &[
-    "b", "bench", "build", "c", "check", "clippy", "d", "doc", "fix", "rustc", "t", "test",
+    "b", "bench", "build", "c", "check", "clippy", "d", "doc", "fix", "r", "run", "rustc", "t",
+    "test",
 ];
+
+const TEST_RUNNER: &str = "ohos-test-runner";
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
     let Cmd::Cargo(args) = cli.command;
     let (options, rest) = split_cargo_args(args)?;
-    match rest.first().map(|s| s.to_string_lossy()) {
-        Some(name) if CARGO_SUBCOMMANDS.contains(&name.as_ref()) => {}
+    let name = match rest.first().map(|s| s.to_string_lossy()) {
+        Some(name) if CARGO_SUBCOMMANDS.contains(&name.as_ref()) => name.into_owned(),
         _ => {
             return Err(format!(
                 "unsupported cargo subcommand. Supported: {}",
                 CARGO_SUBCOMMANDS.join(", ")
             ))
         }
-    }
+    };
 
     let target = Target::parse(&options.target).map_err(|e| e.to_string())?;
-    let build_env = build_env::derive(target, options.sdk.as_deref()).map_err(|e| e.to_string())?;
+    let mut build_env =
+        build_env::derive(target, options.sdk.as_deref()).map_err(|e| e.to_string())?;
+
+    let runner_var = format!(
+        "CARGO_TARGET_{}_RUNNER",
+        build_env.target.rust_triple_upper()
+    );
+    if runs_target_binaries(&name, &rest) && std::env::var_os(&runner_var).is_none() {
+        match find_in_path(TEST_RUNNER) {
+            Some(runner) => {
+                build_env
+                    .env
+                    .insert(runner_var, runner.to_string_lossy().into_owned());
+            }
+            None => {
+                return Err(format!(
+                    "`cargo ohos {name}` runs binaries on a connected device, which needs \
+                     `{TEST_RUNNER}`. Install it with `cargo install --locked {TEST_RUNNER}`."
+                ))
+            }
+        }
+    }
 
     let mut argv: Vec<OsString> = vec!["cargo".into()];
     argv.extend(rest);
@@ -78,6 +102,27 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         format!("--target={}", build_env.target.rust_triple).into(),
     );
     spawn(&build_env, &argv)
+}
+
+fn runs_target_binaries(name: &str, rest: &[OsString]) -> bool {
+    matches!(name, "r" | "run" | "t" | "test" | "bench")
+        && !rest
+            .iter()
+            .any(|arg| arg == "--no-run" || arg == "--help" || arg == "-h")
+}
+
+fn find_in_path(name: &str) -> Option<PathBuf> {
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths).find_map(|dir| {
+        if dir.as_os_str().is_empty() {
+            return None;
+        }
+        let mut candidate = dir.join(name);
+        if cfg!(windows) {
+            candidate.set_extension("exe");
+        }
+        candidate.is_file().then_some(candidate)
+    })
 }
 
 fn split_cargo_args(args: Vec<OsString>) -> Result<(Options, Vec<OsString>), String> {
