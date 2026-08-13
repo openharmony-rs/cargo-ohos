@@ -49,12 +49,21 @@ fn main() -> ExitCode {
     }
 }
 
+const CARGO_SUBCOMMANDS: &[&str] = &[
+    "b", "bench", "build", "c", "check", "clippy", "d", "doc", "fix", "rustc", "t", "test",
+];
+
 fn run(cli: Cli) -> Result<ExitCode, String> {
     let Cmd::Cargo(args) = cli.command;
     let (options, rest) = split_cargo_args(args)?;
     match rest.first().map(|s| s.to_string_lossy()) {
-        Some(name) if name == "build" || name == "rustc" => {}
-        _ => return Err("only `cargo ohos <build|rustc>` is supported".to_owned()),
+        Some(name) if CARGO_SUBCOMMANDS.contains(&name.as_ref()) => {}
+        _ => {
+            return Err(format!(
+                "unsupported cargo subcommand. Supported: {}",
+                CARGO_SUBCOMMANDS.join(", ")
+            ))
+        }
     }
 
     let target = Target::parse(&options.target).map_err(|e| e.to_string())?;
