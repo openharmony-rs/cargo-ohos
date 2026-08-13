@@ -214,27 +214,6 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(Options, Vec<OsString>), Str
     Ok((Options { target, sdk }, rest))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn split_stops_at_double_dash() {
-        let args: Vec<OsString> = [
-            "test", "-t", "aarch64", "--", "--target", "foo", "--sdk", "x",
-        ]
-        .iter()
-        .map(OsString::from)
-        .collect();
-        let (options, rest) = split_cargo_args(args).unwrap();
-        assert_eq!(options.target, "aarch64");
-        assert_eq!(
-            rest,
-            ["test", "--", "--target", "foo", "--sdk", "x"].map(OsString::from)
-        );
-    }
-}
-
 fn plain_rustflags(build_env: &BuildEnv) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
     if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
@@ -255,18 +234,22 @@ fn encoded_rustflags(build_env: &BuildEnv) -> String {
     plain_rustflags(build_env).join("\u{1f}")
 }
 
+fn resolved_env(build_env: &BuildEnv) -> BTreeMap<String, String> {
+    let mut env = build_env.env.clone();
+    env.insert(
+        "CARGO_ENCODED_RUSTFLAGS".to_owned(),
+        encoded_rustflags(build_env),
+    );
+    env
+}
+
 fn emit(build_env: &BuildEnv, format: Format) {
-    let mut env: BTreeMap<&str, String> = build_env
-        .env
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.clone()))
-        .collect();
+    let mut env = resolved_env(build_env);
     let mut warnings: Vec<String> = Vec::new();
     match format {
-        Format::Json => {
-            env.insert("CARGO_ENCODED_RUSTFLAGS", encoded_rustflags(build_env));
-        }
+        Format::Json => {}
         Format::Sh | Format::Powershell => {
+            env.remove("CARGO_ENCODED_RUSTFLAGS");
             env.retain(|key, _| {
                 let mut chars = key.chars();
                 chars
@@ -282,7 +265,7 @@ fn emit(build_env: &BuildEnv, format: Format) {
                         .to_owned(),
                 );
             }
-            env.insert("RUSTFLAGS", flags.join(" "));
+            env.insert("RUSTFLAGS".to_owned(), flags.join(" "));
         }
     }
 
@@ -324,8 +307,7 @@ fn spawn(build_env: &BuildEnv, argv: &[OsString]) -> Result<ExitCode, String> {
     let (program, args) = argv.split_first().ok_or("no command given")?;
     let mut cmd = Command::new(program);
     cmd.args(args);
-    cmd.envs(&build_env.env);
-    cmd.env("CARGO_ENCODED_RUSTFLAGS", encoded_rustflags(build_env));
+    cmd.envs(resolved_env(build_env));
     cmd.env_remove("RUSTFLAGS");
 
     let status = cmd
@@ -336,4 +318,25 @@ fn spawn(build_env: &BuildEnv, argv: &[OsString]) -> Result<ExitCode, String> {
         Some(code) => ExitCode::from(code.min(255) as u8),
         None => ExitCode::FAILURE,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_stops_at_double_dash() {
+        let args: Vec<OsString> = [
+            "test", "-t", "aarch64", "--", "--target", "foo", "--sdk", "x",
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect();
+        let (options, rest) = split_cargo_args(args).unwrap();
+        assert_eq!(options.target, "aarch64");
+        assert_eq!(
+            rest,
+            ["test", "--", "--target", "foo", "--sdk", "x"].map(OsString::from)
+        );
+    }
 }
