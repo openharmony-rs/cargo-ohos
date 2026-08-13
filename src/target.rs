@@ -6,6 +6,8 @@ pub enum Arch {
     Aarch64,
     Armv7,
     X86_64,
+    // serde's snake_case rule would produce `loong_arch64`.
+    #[serde(rename = "loongarch64")]
     LoongArch64,
 }
 
