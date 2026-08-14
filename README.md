@@ -28,8 +28,8 @@ cargo ohos build --download-prebuilt=19 --release
 ```
 
 The archive is verified against the SHA-256 digest published by GitHub. 
-When the `gh` CLI is installed, its GitHub artifact attestation must also identify the mirror 
-repository's `mirror.yml` workflow on `main` as the signer.
+When the `gh` CLI is installed and authenticated, its GitHub artifact attestation must also
+identify the mirror repository's `mirror.yml` workflow on `main` as the signer.
 This attests the mirroring and validation workflow, not how OpenHarmony originally built the toolchain.
 
 The verified toolchain is cached in `target/ohos-llvm.

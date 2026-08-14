@@ -1,7 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use flate2::read::GzDecoder;
@@ -366,7 +366,41 @@ fn download_and_verify(asset: &Asset, expected: &str, destination: &Path) -> Res
 }
 
 fn verify_attestation(artifact: &Path) -> Result<(), String> {
-    let status = match Command::new("gh")
+    verify_attestation_with(artifact, |command| {
+        command.status().map(|status| status.success())
+    })
+}
+
+fn verify_attestation_with(
+    artifact: &Path,
+    mut run: impl FnMut(&mut Command) -> std::io::Result<bool>,
+) -> Result<(), String> {
+    let authenticated = match run(Command::new("gh")
+        .arg("auth")
+        .arg("status")
+        .arg("--active")
+        .arg("--hostname")
+        .arg("github.com")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null()))
+    {
+        Ok(authenticated) => authenticated,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "note: `gh` is not installed; skipping GitHub artifact attestation verification"
+            );
+            return Ok(());
+        }
+        Err(error) => return Err(format!("could not run `gh auth status`: {error}")),
+    };
+    if !authenticated {
+        eprintln!(
+            "note: `gh` is not authenticated; skipping GitHub artifact attestation verification"
+        );
+        return Ok(());
+    }
+
+    let verified = run(Command::new("gh")
         .arg("attestation")
         .arg("verify")
         .arg(artifact)
@@ -376,19 +410,9 @@ fn verify_attestation(artifact: &Path) -> Result<(), String> {
         .arg(SIGNER_WORKFLOW)
         .arg("--source-ref")
         .arg("refs/heads/main")
-        .arg("--deny-self-hosted-runners")
-        .status()
-    {
-        Ok(status) => status,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!(
-                "note: `gh` is not installed; skipping GitHub artifact attestation verification"
-            );
-            return Ok(());
-        }
-        Err(error) => return Err(format!("could not run `gh attestation verify`: {error}")),
-    };
-    if !status.success() {
+        .arg("--deny-self-hosted-runners"))
+    .map_err(|error| format!("could not run `gh attestation verify`: {error}"))?;
+    if !verified {
         return Err(format!(
             "GitHub artifact attestation verification failed for {}",
             artifact.display()
