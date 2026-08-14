@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output};
 use std::time::Duration;
 
 use flate2::read::GzDecoder;
@@ -386,25 +386,21 @@ fn download_and_verify(asset: &Asset, expected: &str, destination: &Path) -> Res
 }
 
 fn verify_attestation(artifact: &Path) -> Result<(), String> {
-    verify_attestation_with(artifact, |command| {
-        command.status().map(|status| status.success())
-    })
+    verify_attestation_with(artifact, |command| command.output())
 }
 
 fn verify_attestation_with(
     artifact: &Path,
-    mut run: impl FnMut(&mut Command) -> std::io::Result<bool>,
+    mut run: impl FnMut(&mut Command) -> std::io::Result<Output>,
 ) -> Result<(), String> {
-    let authenticated = match run(Command::new("gh")
+    let auth_output = match run(Command::new("gh")
         .arg("auth")
         .arg("status")
         .arg("--active")
         .arg("--hostname")
-        .arg("github.com")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null()))
+        .arg("github.com"))
     {
-        Ok(authenticated) => authenticated,
+        Ok(output) => output,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             eprintln!(
                 "note: `gh` is not installed; skipping GitHub artifact attestation verification"
@@ -413,14 +409,14 @@ fn verify_attestation_with(
         }
         Err(error) => return Err(format!("could not run `gh auth status`: {error}")),
     };
-    if !authenticated {
+    if !auth_output.status.success() {
         eprintln!(
             "note: `gh` is not authenticated; skipping GitHub artifact attestation verification"
         );
         return Ok(());
     }
 
-    let verified = run(Command::new("gh")
+    let output = run(Command::new("gh")
         .arg("attestation")
         .arg("verify")
         .arg(artifact)
@@ -432,14 +428,29 @@ fn verify_attestation_with(
         .arg("refs/heads/main")
         .arg("--deny-self-hosted-runners"))
     .map_err(|error| format!("could not run `gh attestation verify`: {error}"))?;
-    if !verified {
-        return Err(format!(
-            "GitHub artifact attestation verification failed for {}",
-            artifact.display()
+    if !output.status.success() {
+        return Err(with_command_output(
+            format!(
+                "GitHub artifact attestation verification failed for {}",
+                artifact.display()
+            ),
+            &output.stdout,
+            &output.stderr,
         ));
     }
     eprintln!("note: GitHub artifact attestation verified");
     Ok(())
+}
+
+fn with_command_output(mut message: String, stdout: &[u8], stderr: &[u8]) -> String {
+    for (label, bytes) in [("stdout", stdout), ("stderr", stderr)] {
+        let text = String::from_utf8_lossy(bytes);
+        let text = text.trim();
+        if !text.is_empty() {
+            message.push_str(&format!("\n{label}:\n{text}"));
+        }
+    }
+    message
 }
 
 fn extract(archive_path: &Path, destination: &Path) -> Result<(), String> {
@@ -627,6 +638,20 @@ mod tests {
         });
 
         assert_eq!(root, Path::new("custom-target/ohos-llvm"));
+    }
+
+    #[test]
+    fn includes_captured_command_output_in_errors() {
+        let message = with_command_output(
+            "verification failed".to_owned(),
+            b"attestation details\n",
+            b"verification error\n",
+        );
+
+        assert_eq!(
+            message,
+            "verification failed\nstdout:\nattestation details\nstderr:\nverification error"
+        );
     }
 
     #[test]
