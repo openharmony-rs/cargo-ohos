@@ -195,6 +195,7 @@ fn runs_target_binaries(name: &str, rest: &[OsString]) -> bool {
     matches!(name, "r" | "run" | "t" | "test" | "bench")
         && !rest
             .iter()
+            .take_while(|arg| arg.as_os_str() != "--")
             .any(|arg| arg == "--no-run" || arg == "--help" || arg == "-h")
 }
 
@@ -398,5 +399,17 @@ mod tests {
     #[test]
     fn explicit_target_wins() {
         assert_eq!(resolve_target(Some("armv7".to_owned())), "armv7");
+    }
+
+    #[test]
+    fn target_help_still_needs_a_runner() {
+        let args = ["run", "--", "--help"].map(OsString::from);
+        assert!(runs_target_binaries("run", &args));
+    }
+
+    #[test]
+    fn cargo_help_does_not_need_a_runner() {
+        let args = ["run", "--help"].map(OsString::from);
+        assert!(!runs_target_binaries("run", &args));
     }
 }
