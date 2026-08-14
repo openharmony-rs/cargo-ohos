@@ -198,11 +198,10 @@ fn build_env_map(
     );
     env.insert(
         format!("PKG_CONFIG_PATH_{rust_u}"),
-        format!(
-            "{}:{}",
-            posix(&sdk.sysroot.join("usr").join("lib").join("pkgconfig")),
-            posix(&sdk.sysroot.join("usr").join("share").join("pkgconfig"))
-        ),
+        path_list([
+            sdk.sysroot.join("usr").join("lib").join("pkgconfig"),
+            sdk.sysroot.join("usr").join("share").join("pkgconfig"),
+        ])?,
     );
 
     env.insert("CARGO_OHOS_SDK_NATIVE".to_owned(), posix(&sdk.native_root));
@@ -276,6 +275,11 @@ fn posix(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+fn path_list(paths: impl IntoIterator<Item = PathBuf>) -> Result<String, Error> {
+    let value = std::env::join_paths(paths).map_err(|source| Error::JoinPaths { source })?;
+    Ok(value.to_string_lossy().replace('\\', "/"))
+}
+
 #[derive(Debug)]
 pub enum Error {
     SdkNotFound {
@@ -293,6 +297,9 @@ pub enum Error {
     Io {
         path: PathBuf,
         source: std::io::Error,
+    },
+    JoinPaths {
+        source: std::env::JoinPathsError,
     },
 }
 
@@ -322,6 +329,7 @@ impl fmt::Display for Error {
                  value on it. Use paths without spaces for the SDK and LLVM toolchain."
             ),
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
+            Self::JoinPaths { source } => write!(f, "could not construct path list: {source}"),
         }
     }
 }
@@ -330,7 +338,21 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io { source, .. } => Some(source),
+            Self::JoinPaths { source } => Some(source),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_list_uses_the_platform_separator() {
+        let value = path_list([PathBuf::from("first"), PathBuf::from("second")]).unwrap();
+        let paths: Vec<PathBuf> = std::env::split_paths(&value).collect();
+
+        assert_eq!(paths, [PathBuf::from("first"), PathBuf::from("second")]);
     }
 }
