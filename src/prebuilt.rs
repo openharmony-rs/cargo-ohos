@@ -6,7 +6,6 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use flate2::read::GzDecoder;
-use fs2::FileExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -65,7 +64,7 @@ fn releases() -> Result<Vec<Release>, String> {
     let cache = root.join("releases.json");
     let lock_path = root.join("releases.lock");
     let lock = open_lock(&lock_path)?;
-    lock.lock_exclusive()
+    lock.lock()
         .map_err(|e| format!("could not lock {}: {e}", lock_path.display()))?;
 
     if cache_is_fresh(&cache) {
@@ -249,7 +248,7 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
 
     let lock_path = root.join(format!("{}-{}.lock", selection.version, selection.host.id));
     let lock = open_lock(&lock_path)?;
-    lock.lock_exclusive()
+    lock.lock()
         .map_err(|e| format!("could not lock {}: {e}", lock_path.display()))?;
 
     let install_dir = root
