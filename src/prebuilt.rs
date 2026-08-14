@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -324,10 +325,30 @@ fn open_lock(path: &Path) -> Result<File, String> {
 }
 
 fn cache_root() -> PathBuf {
-    std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target"))
-        .join("ohos-llvm")
+    cache_root_with(std::env::consts::OS, |name| std::env::var_os(name))
+}
+
+fn cache_root_with(os: &str, env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
+    let absolute_env_path = |name| {
+        env(name)
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+    };
+    let cache_base = absolute_env_path("XDG_CACHE_HOME").or_else(|| match os {
+        "macos" => absolute_env_path("HOME").map(|home| home.join("Library/Caches")),
+        "windows" => absolute_env_path("LOCALAPPDATA")
+            .or_else(|| absolute_env_path("HOME").map(|home| home.join(".cache"))),
+        _ => absolute_env_path("HOME").map(|home| home.join(".cache")),
+    });
+
+    cache_base
+        .map(|base| base.join("cargo-ohos").join("ohos-llvm"))
+        .unwrap_or_else(|| {
+            env("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("target"))
+                .join("ohos-llvm")
+        })
 }
 
 fn download_and_verify(asset: &Asset, expected: &str, destination: &Path) -> Result<(), String> {
@@ -562,6 +583,51 @@ mod tests {
         assert!(validate_version("").is_err());
         assert!(validate_version("../../19").is_err());
         assert!(validate_version("19/latest").is_err());
+    }
+
+    #[test]
+    fn uses_shared_platform_cache_directories() {
+        let root = |os, variables: &[(&str, &Path)]| {
+            cache_root_with(os, |name| {
+                variables
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| value.as_os_str().to_owned())
+            })
+        };
+        let base = std::env::temp_dir().join("cargo-ohos-cache-root-test");
+        let xdg_cache = base.join("xdg-cache");
+        let linux_home = base.join("linux-home");
+        let macos_home = base.join("macos-home");
+        let local_app_data = base.join("local-app-data");
+
+        assert_eq!(
+            root("linux", &[("XDG_CACHE_HOME", &xdg_cache)]),
+            xdg_cache.join("cargo-ohos/ohos-llvm")
+        );
+        assert_eq!(
+            root("linux", &[("HOME", &linux_home)]),
+            linux_home.join(".cache/cargo-ohos/ohos-llvm")
+        );
+        assert_eq!(
+            root("macos", &[("HOME", &macos_home)]),
+            macos_home.join("Library/Caches/cargo-ohos/ohos-llvm")
+        );
+        assert_eq!(
+            root("windows", &[("LOCALAPPDATA", &local_app_data)]),
+            local_app_data.join("cargo-ohos/ohos-llvm")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_project_cache_without_an_absolute_user_cache() {
+        let root = cache_root_with("linux", |name| match name {
+            "XDG_CACHE_HOME" => Some(OsString::from("relative-cache")),
+            "CARGO_TARGET_DIR" => Some(OsString::from("custom-target")),
+            _ => None,
+        });
+
+        assert_eq!(root, Path::new("custom-target/ohos-llvm"));
     }
 
     #[test]

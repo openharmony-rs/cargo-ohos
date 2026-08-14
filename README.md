@@ -32,7 +32,11 @@ When the `gh` CLI is installed and authenticated, its GitHub artifact attestatio
 identify the mirror repository's `mirror.yml` workflow on `main` as the signer.
 This attests the mirroring and validation workflow, not how OpenHarmony originally built the toolchain.
 
-The verified toolchain is cached in `target/ohos-llvm.
+The verified toolchain is by default located under
+`$XDG_CACHE_HOME/cargo-ohos/ohos-llvm` (or `~/.cache/cargo-ohos/ohos-llvm`) on Linux,
+`~/Library/Caches/cargo-ohos/ohos-llvm` on macOS, and
+`%LOCALAPPDATA%\cargo-ohos\ohos-llvm` on Windows. 
+An absolute `XDG_CACHE_HOME` takes precedence on every platform.
 A regular OpenHarmony SDK is still required for the sysroot. 
 Set the option for all invocations with:
 
