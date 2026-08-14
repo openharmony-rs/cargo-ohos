@@ -44,6 +44,7 @@ enum Cmd {
 #[derive(Args, Default)]
 struct CliOptions {
     /// Rust triple (`aarch64-unknown-linux-ohos`) or short arch (`aarch64`, `armv7`, `x86_64`).
+    /// Defaults to `$CARGO_BUILD_TARGET`, or `aarch64-unknown-linux-ohos`.
     #[arg(short, long)]
     target: Option<String>,
     /// The `native` directory of the OpenHarmony SDK.
@@ -80,14 +81,8 @@ impl TryFrom<CliOptions> for Options {
     type Error = String;
 
     fn try_from(cli: CliOptions) -> Result<Self, String> {
-        let target = cli
-            .target
-            .or_else(|| std::env::var("CARGO_BUILD_TARGET").ok())
-            .ok_or_else(|| {
-                "no target given. Pass `-t aarch64` (or set `CARGO_BUILD_TARGET`).".to_owned()
-            })?;
         Ok(Self {
-            target,
+            target: resolve_target(cli.target),
             sdk: cli.sdk,
             llvm: cli
                 .llvm
@@ -106,6 +101,21 @@ impl Options {
         config.no_inline_flags = self.no_inline_flags;
         build_env::derive(&config).map_err(|e| e.to_string())
     }
+}
+
+const DEFAULT_TARGET: &str = "aarch64-unknown-linux-ohos";
+
+fn resolve_target(explicit: Option<String>) -> String {
+    explicit
+        .or_else(|| std::env::var("CARGO_BUILD_TARGET").ok())
+        .unwrap_or_else(|| {
+            // stderr: the stdout of `env --format sh` is meant to be eval'd.
+            eprintln!(
+                "note: no target given, defaulting to {DEFAULT_TARGET} \
+                 (override with --target or $CARGO_BUILD_TARGET)"
+            );
+            DEFAULT_TARGET.to_owned()
+        })
 }
 
 fn main() -> ExitCode {
@@ -378,5 +388,15 @@ mod tests {
         );
         assert!(options.no_inline_flags);
         assert_eq!(rest, [OsString::from("build")]);
+    }
+
+    #[test]
+    fn default_target_is_a_valid_target() {
+        assert!(Target::parse(DEFAULT_TARGET).is_ok());
+    }
+
+    #[test]
+    fn explicit_target_wins() {
+        assert_eq!(resolve_target(Some("armv7".to_owned())), "armv7");
     }
 }
