@@ -41,7 +41,7 @@ enum Cmd {
     Cargo(Vec<OsString>),
 }
 
-#[derive(Args)]
+#[derive(Args, Default)]
 struct CliOptions {
     /// Rust triple (`aarch64-unknown-linux-ohos`) or short arch (`aarch64`, `armv7`, `x86_64`).
     #[arg(short, long)]
@@ -49,6 +49,17 @@ struct CliOptions {
     /// The `native` directory of the OpenHarmony SDK.
     #[arg(long)]
     sdk: Option<PathBuf>,
+    /// An OpenHarmony LLVM toolchain to use instead of the SDK's: the `llvm`
+    /// directory of an unpacked prebuilt (see openharmony-rs/ohos-llvm-toolchains).
+    /// The sysroot still comes from the SDK. Defaults to `$OHOS_LLVM`.
+    #[arg(long)]
+    llvm: Option<PathBuf>,
+    /// With --llvm, keep the target flags in `TARGET_CFLAGS`/`TARGET_CXXFLAGS`
+    /// instead of folding them into the `CC`/`CXX` values. The default folds
+    /// them in so that build systems which re-synthesize compiler command
+    /// lines (autoconf probes, SpiderMonkey's moz.configure) still target OHOS.
+    #[arg(long)]
+    no_inline_flags: bool,
 }
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -61,6 +72,8 @@ enum Format {
 struct Options {
     target: String,
     sdk: Option<PathBuf>,
+    llvm: Option<PathBuf>,
+    no_inline_flags: bool,
 }
 
 impl TryFrom<CliOptions> for Options {
@@ -76,7 +89,22 @@ impl TryFrom<CliOptions> for Options {
         Ok(Self {
             target,
             sdk: cli.sdk,
+            llvm: cli
+                .llvm
+                .or_else(|| std::env::var_os("OHOS_LLVM").map(PathBuf::from)),
+            no_inline_flags: cli.no_inline_flags,
         })
+    }
+}
+
+impl Options {
+    fn derive_build_env(&self) -> Result<BuildEnv, String> {
+        let target = Target::parse(&self.target).map_err(|e| e.to_string())?;
+        let mut config = build_env::Config::new(target);
+        config.sdk = self.sdk.clone();
+        config.llvm = self.llvm.clone();
+        config.no_inline_flags = self.no_inline_flags;
+        build_env::derive(&config).map_err(|e| e.to_string())
     }
 }
 
@@ -102,15 +130,14 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     let args = match cli.command {
         Cmd::Env { options, format } => {
             let options = Options::try_from(options)?;
-            let target = Target::parse(&options.target).map_err(|e| e.to_string())?;
-            let build_env =
-                build_env::derive(target, options.sdk.as_deref()).map_err(|e| e.to_string())?;
+            let build_env = options.derive_build_env()?;
             emit(&build_env, format);
             return Ok(ExitCode::SUCCESS);
         }
         Cmd::Cargo(args) => args,
     };
     let (options, rest) = split_cargo_args(args)?;
+    let options = Options::try_from(options)?;
     let name = match rest.first().map(|s| s.to_string_lossy()) {
         Some(name) if CARGO_SUBCOMMANDS.contains(&name.as_ref()) => name.into_owned(),
         _ => {
@@ -121,9 +148,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         }
     };
 
-    let target = Target::parse(&options.target).map_err(|e| e.to_string())?;
-    let mut build_env =
-        build_env::derive(target, options.sdk.as_deref()).map_err(|e| e.to_string())?;
+    let mut build_env = options.derive_build_env()?;
 
     let runner_var = format!(
         "CARGO_TARGET_{}_RUNNER",
@@ -177,10 +202,9 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
     })
 }
 
-fn split_cargo_args(args: Vec<OsString>) -> Result<(Options, Vec<OsString>), String> {
+fn split_cargo_args(args: Vec<OsString>) -> Result<(CliOptions, Vec<OsString>), String> {
     let mut rest = Vec::new();
-    let mut target = std::env::var("CARGO_BUILD_TARGET").ok();
-    let mut sdk = None;
+    let mut options = CliOptions::default();
 
     let mut it = args.into_iter();
     while let Some(arg) = it.next() {
@@ -196,11 +220,15 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(Options, Vec<OsString>), Str
                 .ok_or_else(|| format!("missing value after `{name}`"))
         };
         match text.as_str() {
-            "-t" | "--target" => target = Some(take("--target")?.to_string_lossy().into_owned()),
-            "--sdk" => sdk = Some(PathBuf::from(take("--sdk")?)),
+            "-t" | "--target" => {
+                options.target = Some(take("--target")?.to_string_lossy().into_owned())
+            }
+            "--sdk" => options.sdk = Some(PathBuf::from(take("--sdk")?)),
+            "--llvm" => options.llvm = Some(PathBuf::from(take("--llvm")?)),
+            "--no-inline-flags" => options.no_inline_flags = true,
             _ => {
                 if let Some(v) = text.strip_prefix("--target=") {
-                    target = Some(v.to_owned());
+                    options.target = Some(v.to_owned());
                 } else {
                     rest.push(arg);
                 }
@@ -208,10 +236,7 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(Options, Vec<OsString>), Str
         }
     }
 
-    let target = target.ok_or_else(|| {
-        "no target given. Pass `-t aarch64` (or set $CARGO_BUILD_TARGET).".to_owned()
-    })?;
-    Ok((Options { target, sdk }, rest))
+    Ok((options, rest))
 }
 
 fn plain_rustflags(build_env: &BuildEnv) -> Vec<String> {
@@ -333,10 +358,25 @@ mod tests {
         .map(OsString::from)
         .collect();
         let (options, rest) = split_cargo_args(args).unwrap();
-        assert_eq!(options.target, "aarch64");
+        assert_eq!(options.target.as_deref(), Some("aarch64"));
         assert_eq!(
             rest,
             ["test", "--", "--target", "foo", "--sdk", "x"].map(OsString::from)
         );
+    }
+
+    #[test]
+    fn split_takes_llvm_and_inline_options() {
+        let args: Vec<OsString> = ["build", "--llvm", "/toolchains/llvm", "--no-inline-flags"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let (options, rest) = split_cargo_args(args).unwrap();
+        assert_eq!(
+            options.llvm.as_deref(),
+            Some(std::path::Path::new("/toolchains/llvm"))
+        );
+        assert!(options.no_inline_flags);
+        assert_eq!(rest, [OsString::from("build")]);
     }
 }

@@ -24,9 +24,40 @@ pub struct BuildEnv {
     pub env: BTreeMap<String, String>,
 }
 
-pub fn derive(target: Target, sdk_dir: Option<&Path>) -> Result<BuildEnv, Error> {
-    let sdk = Sdk::discover(sdk_dir)?;
-    let toolchain = Toolchain::resolve(&sdk)?;
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub target: Target,
+    pub sdk: Option<PathBuf>,
+    /// An OpenHarmony LLVM toolchain (`llvm` directory) to use instead of the
+    /// SDK's, e.g. an unpacked prebuilt from openharmony-rs/ohos-llvm-toolchains.
+    pub llvm: Option<PathBuf>,
+    pub no_inline_flags: bool,
+}
+
+impl Config {
+    pub fn new(target: Target) -> Self {
+        Self {
+            target,
+            sdk: None,
+            llvm: None,
+            no_inline_flags: false,
+        }
+    }
+
+    // With an external toolchain the flags default to riding inside the
+    // `CC`/`CXX` values: build systems that re-synthesize compiler command
+    // lines (SpiderMonkey's moz.configure, autoconf probes) drop `CFLAGS`,
+    // and unlike the SDK clang, an external clang invoked without
+    // `--target`/`--sysroot` may not even compile host probes correctly.
+    fn inline_flags(&self) -> bool {
+        self.llvm.is_some() && !self.no_inline_flags
+    }
+}
+
+pub fn derive(config: &Config) -> Result<BuildEnv, Error> {
+    let sdk = Sdk::discover(config.sdk.as_deref())?;
+    let target = config.target.clone();
+    let toolchain = Toolchain::resolve(&sdk, config.llvm.as_deref())?;
 
     let mut shared_cflags = vec![
         format!("--target={}", target.clang_triple),
@@ -60,7 +91,7 @@ pub fn derive(target: Target, sdk_dir: Option<&Path>) -> Result<BuildEnv, Error>
         .map(|f| format!("-Clink-arg={f}"))
         .collect();
 
-    let env = build_env_map(&sdk, &target, &toolchain, &flags);
+    let env = build_env_map(config, &sdk, &target, &toolchain, &flags)?;
 
     Ok(BuildEnv {
         sdk,
@@ -72,18 +103,43 @@ pub fn derive(target: Target, sdk_dir: Option<&Path>) -> Result<BuildEnv, Error>
 }
 
 fn build_env_map(
+    config: &Config,
     sdk: &Sdk,
     target: &Target,
     toolchain: &Toolchain,
     flags: &Flags,
-) -> BTreeMap<String, String> {
+) -> Result<BTreeMap<String, String>, Error> {
     let mut env = BTreeMap::new();
     let rust = &target.rust_triple;
     let rust_u = target.rust_triple_underscored();
     let clang = posix(&toolchain.clang);
     let clangxx = posix(&toolchain.clangxx);
 
-    for (tool, value) in [("CC", &clang), ("CXX", &clangxx)] {
+    let (cc_value, cxx_value) = if config.inline_flags() {
+        // Silence "-Wl,... unused during compilation" style warnings: a build
+        // system probing flag support with `-Werror` would read them as
+        // "flag unsupported".
+        const QUIET: &str = "-Wno-unused-command-line-argument";
+        let join = |program: &str, extra: &[String]| -> Result<String, Error> {
+            let parts: Vec<String> = std::iter::once(program.to_owned())
+                .chain(extra.iter().cloned())
+                .chain(std::iter::once(QUIET.to_owned()))
+                .collect();
+            // cc-rs splits the `CC` value on whitespace, so no part may contain any.
+            if let Some(part) = parts.iter().find(|p| p.contains(char::is_whitespace)) {
+                return Err(Error::WhitespaceInCompilerValue { part: part.clone() });
+            }
+            Ok(parts.join(" "))
+        };
+        (
+            join(&clang, &flags.cflags)?,
+            join(&clangxx, &flags.cxxflags)?,
+        )
+    } else {
+        (clang.clone(), clangxx.clone())
+    };
+
+    for (tool, value) in [("CC", &cc_value), ("CXX", &cxx_value)] {
         env.insert(format!("{tool}_{rust}"), value.clone());
         env.insert(format!("{tool}_{rust_u}"), value.clone());
     }
@@ -105,8 +161,10 @@ fn build_env_map(
     env.insert("TARGET_OBJCOPY".to_owned(), posix(&toolchain.objcopy));
     env.insert("TARGET_READELF".to_owned(), posix(&toolchain.readelf));
 
-    env.insert("TARGET_CFLAGS".to_owned(), flags.cflags.join(" "));
-    env.insert("TARGET_CXXFLAGS".to_owned(), flags.cxxflags.join(" "));
+    if !config.inline_flags() {
+        env.insert("TARGET_CFLAGS".to_owned(), flags.cflags.join(" "));
+        env.insert("TARGET_CXXFLAGS".to_owned(), flags.cxxflags.join(" "));
+    }
 
     env.insert(
         format!("CARGO_TARGET_{}_LINKER", target.rust_triple_upper()),
@@ -125,8 +183,13 @@ fn build_env_map(
     }
     env.insert(format!("CMAKE_C_COMPILER_{rust_u}"), clang.clone());
     env.insert(format!("CMAKE_CXX_COMPILER_{rust_u}"), clangxx.clone());
-    if let Some(file) = &sdk.cmake_toolchain_file {
-        env.insert(format!("CMAKE_TOOLCHAIN_FILE_{rust_u}"), posix(file));
+    if let Some(sdk_file) = &sdk.cmake_toolchain_file {
+        let file = if config.llvm.is_some() {
+            generate_cmake_toolchain(sdk_file, toolchain, flags, target)?
+        } else {
+            sdk_file.clone()
+        };
+        env.insert(format!("CMAKE_TOOLCHAIN_FILE_{rust_u}"), posix(&file));
     }
 
     env.insert(
@@ -149,7 +212,64 @@ fn build_env_map(
         target.clang_triple.clone(),
     );
 
-    env
+    Ok(env)
+}
+
+// The SDK's toolchain file assigns `CMAKE_C_COMPILER` with a plain `set()`,
+// which shadows the cache and therefore beats `-DCMAKE_C_COMPILER=` and
+// `CMAKE_C_COMPILER_<triple>` — cmake builds would silently fall back to the
+// SDK's clang. Including it first and re-assigning afterwards keeps all of
+// its other configuration.
+fn generate_cmake_toolchain(
+    sdk_file: &Path,
+    toolchain: &Toolchain,
+    flags: &Flags,
+    target: &Target,
+) -> Result<PathBuf, Error> {
+    let cflags = flags.cflags.join(" ");
+    let cxxflags = flags.cxxflags.join(" ");
+    let contents = format!(
+        "# Generated by cargo-ohos; do not edit.\n\
+         include(\"{sdk}\")\n\
+         set(CMAKE_C_COMPILER \"{clang}\")\n\
+         set(CMAKE_CXX_COMPILER \"{clangxx}\")\n\
+         set(CMAKE_ASM_COMPILER \"{clang}\")\n\
+         set(CMAKE_C_FLAGS \"${{CMAKE_C_FLAGS}} {cflags}\")\n\
+         set(CMAKE_ASM_FLAGS \"${{CMAKE_ASM_FLAGS}} {cflags}\")\n\
+         set(CMAKE_CXX_FLAGS \"${{CMAKE_CXX_FLAGS}} {cxxflags}\")\n",
+        sdk = posix(sdk_file),
+        clang = posix(&toolchain.clang),
+        clangxx = posix(&toolchain.clangxx),
+    );
+    let dest = generated_dir()
+        .join(&target.clang_triple)
+        .join("ohos.toolchain.cmake");
+    write_if_changed(&dest, &contents)?;
+    Ok(dest)
+}
+
+// Leaves the mtime alone when nothing changed, so dependent builds are not invalidated.
+fn write_if_changed(dest: &Path, contents: &str) -> Result<(), Error> {
+    if std::fs::read_to_string(dest).ok().as_deref() == Some(contents) {
+        return Ok(());
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|source| Error::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    std::fs::write(dest, contents).map_err(|source| Error::Io {
+        path: dest.to_path_buf(),
+        source,
+    })
+}
+
+fn generated_dir() -> PathBuf {
+    let base = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("target"));
+    base.join("ohos-toolchain")
 }
 
 fn posix(path: &Path) -> String {
@@ -158,8 +278,22 @@ fn posix(path: &Path) -> String {
 
 #[derive(Debug)]
 pub enum Error {
-    SdkNotFound { tried: Vec<String> },
-    MissingTool { path: PathBuf },
+    SdkNotFound {
+        tried: Vec<String>,
+    },
+    MissingTool {
+        path: PathBuf,
+    },
+    InvalidToolchain {
+        path: PathBuf,
+    },
+    WhitespaceInCompilerValue {
+        part: String,
+    },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 impl fmt::Display for Error {
@@ -174,8 +308,29 @@ impl fmt::Display for Error {
                 )
             }
             Self::MissingTool { path } => write!(f, "Missing toolchain binary: {}", path.display()),
+            Self::InvalidToolchain { path } => write!(
+                f,
+                "{} does not look like an OpenHarmony LLVM toolchain (expected `bin/clang` and \
+                 `include/libcxx-ohos`). Point --llvm at the `llvm` directory of an OpenHarmony \
+                 SDK or an unpacked prebuilt toolchain \
+                 (https://github.com/openharmony-rs/ohos-llvm-toolchains).",
+                path.display()
+            ),
+            Self::WhitespaceInCompilerValue { part } => write!(
+                f,
+                "`{part}` contains whitespace, which `CC` cannot carry because cc-rs splits the \
+                 value on it. Use paths without spaces for the SDK and LLVM toolchain."
+            ),
+            Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
         }
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
