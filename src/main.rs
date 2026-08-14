@@ -1,4 +1,5 @@
 mod build_env;
+mod prebuilt;
 mod sdk;
 mod target;
 mod toolchain;
@@ -55,6 +56,10 @@ struct CliOptions {
     /// The sysroot still comes from the SDK. Defaults to `$OHOS_LLVM`.
     #[arg(long)]
     llvm: Option<PathBuf>,
+    /// Download and cache the newest matching LLVM toolchain release, for example `19`.
+    /// Defaults to `$CARGO_OHOS_DOWNLOAD_PREBUILT`.
+    #[arg(long, value_name = "VERSION", conflicts_with = "llvm")]
+    download_prebuilt: Option<String>,
     /// With --llvm, keep the target flags in `TARGET_CFLAGS`/`TARGET_CXXFLAGS`
     /// instead of folding them into the `CC`/`CXX` values. The default folds
     /// them in so that build systems which re-synthesize compiler command
@@ -74,6 +79,7 @@ struct Options {
     target: String,
     sdk: Option<PathBuf>,
     llvm: Option<PathBuf>,
+    download_prebuilt: Option<String>,
     no_inline_flags: bool,
 }
 
@@ -81,14 +87,47 @@ impl TryFrom<CliOptions> for Options {
     type Error = String;
 
     fn try_from(cli: CliOptions) -> Result<Self, String> {
+        let (llvm, download_prebuilt) = resolve_toolchain_source(
+            cli.llvm,
+            cli.download_prebuilt,
+            std::env::var_os("OHOS_LLVM").map(PathBuf::from),
+            std::env::var("CARGO_OHOS_DOWNLOAD_PREBUILT")
+                .ok()
+                .filter(|value| !value.is_empty()),
+        )?;
+        if let Some(version) = &download_prebuilt {
+            prebuilt::validate_version(version)?;
+        }
         Ok(Self {
             target: resolve_target(cli.target),
             sdk: cli.sdk,
-            llvm: cli
-                .llvm
-                .or_else(|| std::env::var_os("OHOS_LLVM").map(PathBuf::from)),
+            llvm,
+            download_prebuilt,
             no_inline_flags: cli.no_inline_flags,
         })
+    }
+}
+
+fn resolve_toolchain_source(
+    explicit_llvm: Option<PathBuf>,
+    explicit_download: Option<String>,
+    env_llvm: Option<PathBuf>,
+    env_download: Option<String>,
+) -> Result<(Option<PathBuf>, Option<String>), String> {
+    match (explicit_llvm, explicit_download) {
+        (Some(_), Some(_)) => Err(
+            "`--llvm` and `--download-prebuilt` select different LLVM toolchains and cannot be used together"
+                .to_owned(),
+        ),
+        (Some(llvm), None) => Ok((Some(llvm), None)),
+        (None, Some(download)) => Ok((None, Some(download))),
+        (None, None) => match (env_llvm, env_download) {
+            (Some(_), Some(_)) => Err(
+                "$OHOS_LLVM and $CARGO_OHOS_DOWNLOAD_PREBUILT are both set; unset one of them"
+                    .to_owned(),
+            ),
+            (llvm, download) => Ok((llvm, download)),
+        },
     }
 }
 
@@ -97,7 +136,14 @@ impl Options {
         let target = Target::parse(&self.target).map_err(|e| e.to_string())?;
         let mut config = build_env::Config::new(target);
         config.sdk = self.sdk.clone();
-        config.llvm = self.llvm.clone();
+        config.llvm = match &self.download_prebuilt {
+            Some(version) => {
+                // Validate the SDK before starting a potentially large download.
+                sdk::Sdk::discover(self.sdk.as_deref()).map_err(|e| e.to_string())?;
+                Some(prebuilt::resolve(version)?)
+            }
+            None => self.llvm.clone(),
+        };
         config.no_inline_flags = self.no_inline_flags;
         build_env::derive(&config).map_err(|e| e.to_string())
     }
@@ -236,10 +282,16 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(CliOptions, Vec<OsString>), 
             }
             "--sdk" => options.sdk = Some(PathBuf::from(take("--sdk")?)),
             "--llvm" => options.llvm = Some(PathBuf::from(take("--llvm")?)),
+            "--download-prebuilt" => {
+                options.download_prebuilt =
+                    Some(take("--download-prebuilt")?.to_string_lossy().into_owned())
+            }
             "--no-inline-flags" => options.no_inline_flags = true,
             _ => {
                 if let Some(v) = text.strip_prefix("--target=") {
                     options.target = Some(v.to_owned());
+                } else if let Some(v) = text.strip_prefix("--download-prebuilt=") {
+                    options.download_prebuilt = Some(v.to_owned());
                 } else {
                     rest.push(arg);
                 }
@@ -389,6 +441,52 @@ mod tests {
         );
         assert!(options.no_inline_flags);
         assert_eq!(rest, [OsString::from("build")]);
+    }
+
+    #[test]
+    fn split_takes_download_prebuilt() {
+        let args: Vec<OsString> = ["build", "--download-prebuilt=19"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let (options, rest) = split_cargo_args(args).unwrap();
+
+        assert_eq!(options.download_prebuilt.as_deref(), Some("19"));
+        assert_eq!(rest, [OsString::from("build")]);
+    }
+
+    #[test]
+    fn explicit_toolchain_source_overrides_environment_default() {
+        let (llvm, download) = resolve_toolchain_source(
+            Some(PathBuf::from("explicit")),
+            None,
+            None,
+            Some("19".to_owned()),
+        )
+        .unwrap();
+        assert_eq!(llvm, Some(PathBuf::from("explicit")));
+        assert_eq!(download, None);
+
+        let (llvm, download) = resolve_toolchain_source(
+            None,
+            Some("19".to_owned()),
+            Some(PathBuf::from("environment")),
+            None,
+        )
+        .unwrap();
+        assert_eq!(llvm, None);
+        assert_eq!(download.as_deref(), Some("19"));
+    }
+
+    #[test]
+    fn conflicting_environment_toolchain_sources_are_rejected() {
+        assert!(resolve_toolchain_source(
+            None,
+            None,
+            Some(PathBuf::from("environment")),
+            Some("19".to_owned()),
+        )
+        .is_err());
     }
 
     #[test]
