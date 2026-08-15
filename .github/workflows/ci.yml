@@ -7,7 +7,7 @@ on:
 
 env:
   # Keep in sync with rust-version in Cargo.toml.
-  MSRV: "1.89"
+  MSRV: "1.88"
 
 jobs:
   ci:
