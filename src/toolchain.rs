@@ -44,7 +44,7 @@ impl Toolchain {
             strip: tool(&bin, "llvm-strip")?,
             objcopy: tool(&bin, "llvm-objcopy")?,
             readelf: tool(&bin, "llvm-readelf")?,
-            libclang_dir: root.join("lib"),
+            libclang_dir: libclang_dir(&root)?,
         })
     }
 }
@@ -58,4 +58,43 @@ fn tool(bin_dir: &Path, name: &str) -> Result<PathBuf, Error> {
         return Err(Error::MissingTool { path });
     }
     Ok(path)
+}
+
+// clang-sys searches `LIBCLANG_PATH` first but silently falls back to a host
+// libclang when it holds none, so bindgen would parse with an unpinned
+// compiler. Validate up front like the other tool paths.
+fn libclang_dir(root: &Path) -> Result<PathBuf, Error> {
+    // LLVM installs the DLL next to the executables on Windows.
+    let dirs: &[&str] = if cfg!(windows) {
+        &["lib", "bin"]
+    } else {
+        &["lib"]
+    };
+    for dir in dirs {
+        let dir = root.join(dir);
+        if contains_libclang(&dir) {
+            return Ok(dir);
+        }
+    }
+    Err(Error::MissingLibclang {
+        path: root.join("lib"),
+    })
+}
+
+fn contains_libclang(dir: &Path) -> bool {
+    let ext = if cfg!(windows) {
+        ".dll"
+    } else if cfg!(target_os = "macos") {
+        ".dylib"
+    } else {
+        ".so"
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        name.starts_with("libclang.") && name.contains(ext)
+    })
 }

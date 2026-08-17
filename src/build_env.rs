@@ -339,6 +339,9 @@ pub enum Error {
     InvalidToolchain {
         path: PathBuf,
     },
+    MissingLibclang {
+        path: PathBuf,
+    },
     WhitespaceInCompilerValue {
         part: String,
     },
@@ -372,6 +375,12 @@ impl fmt::Display for Error {
                  `include/libcxx-ohos`). Point --llvm at the `llvm` directory of an OpenHarmony \
                  SDK or an unpacked prebuilt toolchain \
                  (https://github.com/openharmony-rs/ohos-llvm-toolchains).",
+                path.display()
+            ),
+            Self::MissingLibclang { path } => write!(
+                f,
+                "No libclang shared library found in {}. bindgen would silently fall back to \
+                 whatever libclang the host provides instead of the toolchain's.",
                 path.display()
             ),
             Self::WhitespaceInCompilerValue { part } => write!(
