@@ -205,6 +205,9 @@ fn build_env_map(
 
     env.insert("OHOS_SDK_NATIVE".to_owned(), posix(&sdk.native_root));
     env.insert("CARGO_OHOS_SDK_NATIVE".to_owned(), posix(&sdk.native_root));
+    if let Some(api) = sdk.api_version {
+        env.insert("CARGO_OHOS_API_LEVEL".to_owned(), api.to_string());
+    }
     env.insert("CARGO_OHOS_SYSROOT".to_owned(), posix(&sdk.sysroot));
     env.insert(
         "CARGO_OHOS_CLANG_TRIPLE".to_owned(),

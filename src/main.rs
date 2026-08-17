@@ -67,6 +67,10 @@ struct CliOptions {
     /// lines (autoconf probes, SpiderMonkey's moz.configure) still target OHOS.
     #[arg(long)]
     no_inline_flags: bool,
+    /// Fail if the SDK's API level (`apiVersion` in its `oh-uni-package.json`)
+    /// is below N.
+    #[arg(long, value_name = "N")]
+    min_api: Option<u32>,
 }
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -82,6 +86,7 @@ struct Options {
     llvm: Option<PathBuf>,
     download_prebuilt: Option<String>,
     no_inline_flags: bool,
+    min_api: Option<u32>,
 }
 
 impl TryFrom<CliOptions> for Options {
@@ -105,6 +110,7 @@ impl TryFrom<CliOptions> for Options {
             llvm,
             download_prebuilt,
             no_inline_flags: cli.no_inline_flags,
+            min_api: cli.min_api,
         })
     }
 }
@@ -140,13 +146,34 @@ impl Options {
         config.llvm = match &self.download_prebuilt {
             Some(version) => {
                 // Validate the SDK before starting a potentially large download.
-                sdk::Sdk::discover(self.sdk.as_deref()).map_err(|e| e.to_string())?;
+                let sdk = sdk::Sdk::discover(self.sdk.as_deref()).map_err(|e| e.to_string())?;
+                check_min_api(&sdk, self.min_api)?;
                 Some(prebuilt::resolve(version)?)
             }
             None => self.llvm.clone(),
         };
         config.no_inline_flags = self.no_inline_flags;
-        build_env::derive(&config).map_err(|e| e.to_string())
+        let build_env = build_env::derive(&config).map_err(|e| e.to_string())?;
+        check_min_api(&build_env.sdk, self.min_api)?;
+        Ok(build_env)
+    }
+}
+
+fn check_min_api(sdk: &sdk::Sdk, min_api: Option<u32>) -> Result<(), String> {
+    let Some(min) = min_api else {
+        return Ok(());
+    };
+    match sdk.api_version {
+        Some(api) if api >= min => Ok(()),
+        Some(api) => Err(format!(
+            "The OpenHarmony SDK at {} has API level {api}, but --min-api requires at least {min}",
+            sdk.native_root.display()
+        )),
+        None => Err(format!(
+            "--min-api {min} was given, but the SDK at {} does not declare an API level \
+             (missing or unreadable oh-uni-package.json)",
+            sdk.native_root.display()
+        )),
     }
 }
 
@@ -321,11 +348,16 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(CliOptions, Vec<OsString>), 
                     Some(take("--download-prebuilt")?.to_string_lossy().into_owned())
             }
             "--no-inline-flags" => options.no_inline_flags = true,
+            "--min-api" => {
+                options.min_api = Some(parse_min_api(&take("--min-api")?.to_string_lossy())?)
+            }
             _ => {
                 if let Some(v) = text.strip_prefix("--target=") {
                     options.target = Some(v.to_owned());
                 } else if let Some(v) = text.strip_prefix("--download-prebuilt=") {
                     options.download_prebuilt = Some(v.to_owned());
+                } else if let Some(v) = text.strip_prefix("--min-api=") {
+                    options.min_api = Some(parse_min_api(v)?);
                 } else {
                     rest.push(arg);
                 }
@@ -334,6 +366,12 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(CliOptions, Vec<OsString>), 
     }
 
     Ok((options, rest))
+}
+
+fn parse_min_api(value: &str) -> Result<u32, String> {
+    value
+        .parse()
+        .map_err(|_| format!("invalid API level after `--min-api`: `{value}`"))
 }
 
 fn plain_rustflags(build_env: &BuildEnv) -> Vec<String> {
@@ -477,6 +515,41 @@ mod tests {
         );
         assert!(options.no_inline_flags);
         assert_eq!(rest, [OsString::from("build")]);
+    }
+
+    #[test]
+    fn split_takes_min_api() {
+        let args: Vec<OsString> = ["build", "--min-api", "14"].map(OsString::from).to_vec();
+        let (options, rest) = split_cargo_args(args).unwrap();
+        assert_eq!(options.min_api, Some(14));
+        assert_eq!(rest, [OsString::from("build")]);
+
+        let args: Vec<OsString> = ["build", "--min-api=21"].map(OsString::from).to_vec();
+        let (options, _) = split_cargo_args(args).unwrap();
+        assert_eq!(options.min_api, Some(21));
+
+        let args: Vec<OsString> = ["build", "--min-api", "five"].map(OsString::from).to_vec();
+        assert!(split_cargo_args(args).is_err());
+    }
+
+    #[test]
+    fn min_api_gate() {
+        let fake_sdk = |api_version: Option<u32>| sdk::Sdk {
+            native_root: PathBuf::from("/sdk/native"),
+            sysroot: PathBuf::from("/sdk/native/sysroot"),
+            llvm_root: PathBuf::from("/sdk/native/llvm"),
+            llvm_bin: PathBuf::from("/sdk/native/llvm/bin"),
+            cmake: None,
+            cmake_toolchain_file: None,
+            api_version,
+            version: None,
+        };
+        assert!(check_min_api(&fake_sdk(Some(21)), None).is_ok());
+        assert!(check_min_api(&fake_sdk(Some(21)), Some(14)).is_ok());
+        assert!(check_min_api(&fake_sdk(Some(14)), Some(14)).is_ok());
+        assert!(check_min_api(&fake_sdk(Some(12)), Some(14)).is_err());
+        assert!(check_min_api(&fake_sdk(None), Some(14)).is_err());
+        assert!(check_min_api(&fake_sdk(None), None).is_ok());
     }
 
     #[test]

@@ -10,6 +10,10 @@ pub struct Sdk {
     pub llvm_bin: PathBuf,
     pub cmake: Option<PathBuf>,
     pub cmake_toolchain_file: Option<PathBuf>,
+    /// `apiVersion` from `oh-uni-package.json`, e.g. `21`.
+    pub api_version: Option<u32>,
+    /// `version` from `oh-uni-package.json`, e.g. `6.0.1.112`.
+    pub version: Option<String>,
 }
 
 const ENV_CANDIDATES: &[&str] = &[
@@ -116,6 +120,7 @@ impl Sdk {
             .join("build")
             .join("cmake")
             .join("ohos.toolchain.cmake");
+        let (api_version, version) = read_metadata(&native_root);
 
         Some(Self {
             sysroot,
@@ -125,9 +130,36 @@ impl Sdk {
             cmake_toolchain_file: cmake_toolchain_file
                 .is_file()
                 .then_some(cmake_toolchain_file),
+            api_version,
+            version,
             native_root,
         })
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UniPackage {
+    #[serde(default)]
+    api_version: Option<serde_json::Value>,
+    #[serde(default)]
+    version: Option<String>,
+}
+
+// Best-effort: an SDK without (readable) metadata is still usable.
+fn read_metadata(native_root: &Path) -> (Option<u32>, Option<String>) {
+    let Ok(text) = std::fs::read_to_string(native_root.join("oh-uni-package.json")) else {
+        return (None, None);
+    };
+    let Ok(package) = serde_json::from_str::<UniPackage>(&text) else {
+        return (None, None);
+    };
+    let api_version = package.api_version.as_ref().and_then(|value| match value {
+        serde_json::Value::String(s) => s.trim().parse().ok(),
+        serde_json::Value::Number(n) => n.as_u64()?.try_into().ok(),
+        _ => None,
+    });
+    (api_version, package.version)
 }
 
 fn exe(path: &Path) -> Option<PathBuf> {
@@ -175,5 +207,25 @@ mod tests {
         let sdk = Sdk::from_candidate(&root.0).unwrap();
 
         assert_eq!(sdk.native_root, native.canonicalize().unwrap());
+        assert_eq!(sdk.api_version, None);
+        assert_eq!(sdk.version, None);
+    }
+
+    #[test]
+    fn parses_sdk_metadata() {
+        let root = TestDir::new();
+        let native = root.0.join("native");
+        std::fs::create_dir_all(native.join("llvm/bin")).unwrap();
+        std::fs::create_dir(native.join("sysroot")).unwrap();
+        std::fs::write(
+            native.join("oh-uni-package.json"),
+            r#"{"apiVersion": "21", "displayName": "Native", "path": "native", "version": "6.0.1.112"}"#,
+        )
+        .unwrap();
+
+        let sdk = Sdk::from_candidate(&root.0).unwrap();
+
+        assert_eq!(sdk.api_version, Some(21));
+        assert_eq!(sdk.version.as_deref(), Some("6.0.1.112"));
     }
 }

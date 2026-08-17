@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Always generate the cmake toolchain wrapper and set `OHOS_ARCH` in it, so
+  cmake-based C dependencies of armv7/x86_64 builds no longer silently
+  configure for the SDK toolchain file's `arm64-v8a` default
+- Parse `apiVersion`/`version` from the SDK's `oh-uni-package.json`, expose
+  them in the `sdk` JSON object and as `CARGO_OHOS_API_LEVEL`
+- Add `--min-api N` to fail early when the SDK's API level is too old
+
 ## 0.2.2
 
 - Lower the minimum supported Rust version to 1.88 and use `fs4` for file locking
