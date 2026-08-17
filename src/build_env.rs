@@ -166,6 +166,7 @@ fn build_env_map(
     if !config.inline_flags() {
         env.insert("TARGET_CFLAGS".to_owned(), flags.cflags.join(" "));
         env.insert("TARGET_CXXFLAGS".to_owned(), flags.cxxflags.join(" "));
+        env.insert("TARGET_CPPFLAGS".to_owned(), flags.cflags.join(" "));
     }
 
     env.insert(
