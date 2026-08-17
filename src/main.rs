@@ -20,7 +20,8 @@ use target::Target;
     bin_name = "cargo ohos",
     version,
     about,
-    disable_help_subcommand = true
+    disable_help_subcommand = true,
+    after_help = cargo_commands_help()
 )]
 struct Cli {
     #[arg(value_parser = ["ohos"], hide = true)]
@@ -180,6 +181,15 @@ const CARGO_SUBCOMMANDS: &[&str] = &[
     "test",
 ];
 
+fn cargo_commands_help() -> String {
+    format!(
+        "Cargo commands:\n  {}\n\nThese run the matching cargo command with the OpenHarmony \
+         cross-compilation environment set up, e.g. `cargo ohos build --release`. See \
+         `cargo ohos build --help` for the extra options they accept.",
+        CARGO_SUBCOMMANDS.join(", ")
+    )
+}
+
 const TEST_RUNNER: &str = "ohos-test-runner";
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
@@ -193,7 +203,6 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Cmd::Cargo(args) => args,
     };
     let (options, rest) = split_cargo_args(args)?;
-    let options = Options::try_from(options)?;
     let name = match rest.first().map(|s| s.to_string_lossy()) {
         Some(name) if CARGO_SUBCOMMANDS.contains(&name.as_ref()) => name.into_owned(),
         _ => {
@@ -204,6 +213,15 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         }
     };
 
+    if wants_cargo_help(&rest) {
+        let mut argv: Vec<OsString> = vec!["cargo".into()];
+        argv.extend(rest);
+        let code = spawn(None, &argv)?;
+        print_ohos_options_help(&name);
+        return Ok(code);
+    }
+
+    let options = Options::try_from(options)?;
     let mut build_env = options.derive_build_env()?;
 
     let runner_var = format!(
@@ -234,7 +252,23 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         2,
         format!("--target={}", build_env.target.rust_triple).into(),
     );
-    spawn(&build_env, &argv)
+    spawn(Some(&build_env), &argv)
+}
+
+fn wants_cargo_help(rest: &[OsString]) -> bool {
+    rest.iter()
+        .take_while(|arg| arg.as_os_str() != "--")
+        .any(|arg| arg == "--help" || arg == "-h")
+}
+
+fn print_ohos_options_help(name: &str) {
+    let mut cmd = CliOptions::augment_args(clap::Command::new("cargo-ohos"))
+        .disable_help_flag(true)
+        .help_template("{options}");
+    println!(
+        "\nOptions handled by `cargo ohos {name}` itself and not passed on to cargo:\n{}",
+        cmd.render_help()
+    );
 }
 
 fn runs_target_binaries(name: &str, rest: &[OsString]) -> bool {
@@ -391,12 +425,14 @@ fn emit(build_env: &BuildEnv, format: Format) {
     }
 }
 
-fn spawn(build_env: &BuildEnv, argv: &[OsString]) -> Result<ExitCode, String> {
+fn spawn(build_env: Option<&BuildEnv>, argv: &[OsString]) -> Result<ExitCode, String> {
     let (program, args) = argv.split_first().ok_or("no command given")?;
     let mut cmd = Command::new(program);
     cmd.args(args);
-    cmd.envs(resolved_env(build_env));
-    cmd.env_remove("RUSTFLAGS");
+    if let Some(build_env) = build_env {
+        cmd.envs(resolved_env(build_env));
+        cmd.env_remove("RUSTFLAGS");
+    }
 
     let status = cmd
         .status()
@@ -497,6 +533,26 @@ mod tests {
     #[test]
     fn explicit_target_wins() {
         assert_eq!(resolve_target(Some("armv7".to_owned())), "armv7");
+    }
+
+    #[test]
+    fn root_help_mentions_cargo_subcommands() {
+        use clap::CommandFactory;
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("cargo ohos build"));
+        for name in CARGO_SUBCOMMANDS {
+            assert!(help.contains(name), "help does not mention `{name}`");
+        }
+    }
+
+    #[test]
+    fn help_before_double_dash_is_a_help_request() {
+        assert!(wants_cargo_help(&["build", "--help"].map(OsString::from)));
+        assert!(wants_cargo_help(&["build", "-h"].map(OsString::from)));
+        assert!(!wants_cargo_help(
+            &["run", "--", "--help"].map(OsString::from)
+        ));
+        assert!(!wants_cargo_help(&["build"].map(OsString::from)));
     }
 
     #[test]

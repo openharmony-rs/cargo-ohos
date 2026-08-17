@@ -3,6 +3,8 @@
 ## 0.2.2
 
 - Lower the minimum supported Rust version to 1.88 and use `fs4` for file locking
+- `cargo ohos --help` now lists the supported cargo commands
+- `cargo ohos build --help` (and friends) print help without requiring the SDK to be found
 
 ## 0.2.1
 
