@@ -12,6 +12,7 @@
   `TARGET_CPPFLAGS`/`BINDGEN_EXTRA_CLANG_ARGS_<triple>` are appended instead of being overwritten.
   For non-prefixes `CFLAGS`-style variable a warning is emitted, that the value is ignored.
 - `cargo ohos env` output no longer includes user-defined `RUSTFLAGS`.
+- The JSON output now reports the `cargo-ohos` version as `cargo_ohos_version`.
 
 ## 0.2.2
 

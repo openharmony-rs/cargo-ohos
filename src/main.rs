@@ -500,6 +500,7 @@ fn emit(build_env: &BuildEnv, format: Format) {
         Format::Json => {
             let value = serde_json::json!({
                 "schema_version": 1,
+                "cargo_ohos_version": env!("CARGO_PKG_VERSION"),
                 "sdk": build_env.sdk,
                 "target": build_env.target,
                 "toolchain": build_env.toolchain,
