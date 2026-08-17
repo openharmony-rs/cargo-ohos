@@ -13,6 +13,7 @@
   For non-prefixes `CFLAGS`-style variable a warning is emitted, that the value is ignored.
 - `cargo ohos env` output no longer includes user-defined `RUSTFLAGS`.
 - The JSON output now reports the `cargo-ohos` version as `cargo_ohos_version`.
+- Make the cmake toolchain wrapper path absolute and keyed by content.
 
 ## 0.2.2
 

@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+
 use crate::sdk::Sdk;
 use crate::target::Target;
 use crate::toolchain::Toolchain;
@@ -250,9 +252,20 @@ fn generate_cmake_toolchain(
         clang = posix(&toolchain.clang),
         clangxx = posix(&toolchain.clangxx),
     );
+    // Key the location by content, so environments for different SDKs or
+    // toolchains sharing one target directory each keep a stable file instead
+    // of flipping a shared one back and forth.
+    let key: String = Sha256::digest(contents.as_bytes())[..6]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     let dest = generated_dir()
-        .join(&target.clang_triple)
+        .join(format!("{}-{key}", target.clang_triple))
         .join("ohos.toolchain.cmake");
+    let dest = std::path::absolute(&dest).map_err(|source| Error::Io {
+        path: dest.clone(),
+        source,
+    })?;
     write_if_changed(&dest, &contents)?;
     Ok(dest)
 }
