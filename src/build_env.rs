@@ -206,6 +206,7 @@ fn build_env_map(
         ])?,
     );
 
+    env.insert("OHOS_SDK_NATIVE".to_owned(), posix(&sdk.native_root));
     env.insert("CARGO_OHOS_SDK_NATIVE".to_owned(), posix(&sdk.native_root));
     env.insert("CARGO_OHOS_SYSROOT".to_owned(), posix(&sdk.sysroot));
     env.insert(
