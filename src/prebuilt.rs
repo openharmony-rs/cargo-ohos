@@ -374,7 +374,11 @@ fn download_and_verify(asset: &Asset, expected: &str, destination: &Path) -> Res
     }
     file.sync_all()
         .map_err(|e| format!("could not finish {}: {e}", destination.display()))?;
-    let actual = format!("{:x}", hasher.finalize());
+    let actual: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     if actual != expected {
         return Err(format!(
             "SHA-256 mismatch for `{}`: expected {expected}, got {actual}",
