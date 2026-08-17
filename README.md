@@ -13,6 +13,20 @@ cargo ohos build -t aarch64 --release
 The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Studio installation location
 (currently only macOS)
 
+### Pre-set flags
+
+The cargo subcommands (`cargo ohos build`, ...) prepend their flags to any user-defined
+`RUSTFLAGS`/`CARGO_ENCODED_RUSTFLAGS`, `TARGET_CFLAGS`, `TARGET_CXXFLAGS`, `TARGET_CPPFLAGS`
+and `BINDGEN_EXTRA_CLANG_ARGS_<triple>` values, so for example
+`TARGET_CFLAGS=-fsanitize=address cargo ohos build` composes with the CFLAGS that `cargo ohos` sets.
+User defined values come after the ones `cargo ohos` sets.
+
+Unprefixed `CFLAGS`/`CXXFLAGS`/`CPPFLAGS`/`BINDGEN_EXTRA_CLANG_ARGS` are **not** considered:
+cc-rs and bindgen use the most specific defined variable only, so they are masked once
+cargo-ohos sets the `TARGET_`/triple-suffixed one. A warning is printed when this happens.
+Note: Triple-specific variables such as `CFLAGS_aarch64_unknown_linux_ohos` outrank `TARGET_CFLAGS`
+in cc-rs and completely replace the flags from cargo-ohos.
+
 ### Prebuilt LLVM toolchains
 
 It's generally recommend to use the LLVM toolchain bundled with the OpenHarmony SDK.

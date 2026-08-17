@@ -8,6 +8,10 @@
 - Parse `apiVersion`/`version` from the SDK's `oh-uni-package.json`, expose
   them in the `sdk` JSON object and as `CARGO_OHOS_API_LEVEL`
 - Add `--min-api N` to fail early when the SDK's API level is too old
+- User defined `TARGET_CFLAGS`/`TARGET_CXXFLAGS`/
+  `TARGET_CPPFLAGS`/`BINDGEN_EXTRA_CLANG_ARGS_<triple>` are appended instead of being overwritten.
+  For non-prefixes `CFLAGS`-style variable a warning is emitted, that the value is ignored.
+- `cargo ohos env` output no longer includes user-defined `RUSTFLAGS`.
 
 ## 0.2.2
 

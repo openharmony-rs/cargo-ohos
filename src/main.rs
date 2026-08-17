@@ -374,33 +374,100 @@ fn parse_min_api(value: &str) -> Result<u32, String> {
         .map_err(|_| format!("invalid API level after `--min-api`: `{value}`"))
 }
 
-fn plain_rustflags(build_env: &BuildEnv) -> Vec<String> {
-    let mut parts: Vec<String> = Vec::new();
-    if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
-        parts.extend(
-            encoded
-                .split('\u{1f}')
-                .filter(|s| !s.is_empty())
-                .map(str::to_owned),
-        );
-    } else if let Ok(plain) = std::env::var("RUSTFLAGS") {
-        parts.extend(plain.split_whitespace().map(str::to_owned));
-    }
-    parts.extend(build_env.flags.rustflags.iter().cloned());
-    parts
-}
-
-fn encoded_rustflags(build_env: &BuildEnv) -> String {
-    plain_rustflags(build_env).join("\u{1f}")
-}
-
+// Pure: only the tool's own values, independent of the ambient environment,
+// so `env` output can be cached or evaluated repeatedly. The cargo
+// subcommands fold ambient flags in via `passthrough_env` instead.
 fn resolved_env(build_env: &BuildEnv) -> BTreeMap<String, String> {
     let mut env = build_env.env.clone();
     env.insert(
         "CARGO_ENCODED_RUSTFLAGS".to_owned(),
-        encoded_rustflags(build_env),
+        build_env.flags.rustflags.join("\u{1f}"),
     );
     env
+}
+
+fn ambient_rustflags() -> Vec<String> {
+    if let Ok(encoded) = std::env::var("CARGO_ENCODED_RUSTFLAGS") {
+        encoded
+            .split('\u{1f}')
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect()
+    } else if let Ok(plain) = std::env::var("RUSTFLAGS") {
+        plain.split_whitespace().map(str::to_owned).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+fn passthrough_env(build_env: &BuildEnv) -> BTreeMap<String, String> {
+    let mut env = resolved_env(build_env);
+
+    let ambient = ambient_rustflags();
+    let tool_rustflags = &build_env.flags.rustflags;
+    let rustflags = if contains_sequence(&ambient, tool_rustflags) {
+        ambient
+    } else {
+        tool_rustflags.iter().cloned().chain(ambient).collect()
+    };
+    env.insert(
+        "CARGO_ENCODED_RUSTFLAGS".to_owned(),
+        rustflags.join("\u{1f}"),
+    );
+
+    let bindgen_var = format!(
+        "BINDGEN_EXTRA_CLANG_ARGS_{}",
+        build_env.target.rust_triple_underscored()
+    );
+    for warning in fold_ambient_flags(&mut env, &bindgen_var, |key| std::env::var(key).ok()) {
+        eprintln!("warning: {warning}");
+    }
+    env
+}
+
+// User-supplied flags override defaults where order matters.
+fn fold_ambient_flags(
+    env: &mut BTreeMap<String, String>,
+    bindgen_var: &str,
+    ambient: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for (key, plain) in [
+        ("TARGET_CFLAGS", "CFLAGS"),
+        ("TARGET_CXXFLAGS", "CXXFLAGS"),
+        ("TARGET_CPPFLAGS", "CPPFLAGS"),
+        (bindgen_var, "BINDGEN_EXTRA_CLANG_ARGS"),
+    ] {
+        let Some(tool) = env.get(key).cloned() else {
+            continue;
+        };
+        match ambient(key).filter(|value| !value.is_empty()) {
+            Some(value) => {
+                let folded = if value.contains(&tool) {
+                    value
+                } else {
+                    format!("{tool} {value}")
+                };
+                env.insert(key.to_owned(), folded);
+            }
+            None => {
+                if ambient(plain).is_some_and(|value| !value.is_empty()) {
+                    warnings.push(format!(
+                        "${plain} is set, but `cargo ohos` sets ${key} and build scripts use \
+                         the most specific variable only; put the flags in ${key} to compose"
+                    ));
+                }
+            }
+        }
+    }
+    warnings
+}
+
+fn contains_sequence(haystack: &[String], needle: &[String]) -> bool {
+    needle.is_empty()
+        || haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
 }
 
 fn emit(build_env: &BuildEnv, format: Format) {
@@ -417,7 +484,7 @@ fn emit(build_env: &BuildEnv, format: Format) {
                     .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
                     && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
             });
-            let flags = plain_rustflags(build_env);
+            let flags = &build_env.flags.rustflags;
             if flags.iter().any(|f| f.contains(char::is_whitespace)) {
                 warnings.push(
                     "A compiler flag contains whitespace, which `RUSTFLAGS` cannot represent. \
@@ -468,7 +535,7 @@ fn spawn(build_env: Option<&BuildEnv>, argv: &[OsString]) -> Result<ExitCode, St
     let mut cmd = Command::new(program);
     cmd.args(args);
     if let Some(build_env) = build_env {
-        cmd.envs(resolved_env(build_env));
+        cmd.envs(passthrough_env(build_env));
         cmd.env_remove("RUSTFLAGS");
     }
 
@@ -596,6 +663,73 @@ mod tests {
             Some("19".to_owned()),
         )
         .is_err());
+    }
+
+    #[test]
+    fn fold_appends_ambient_after_tool_flags() {
+        let mut env = BTreeMap::from([
+            ("TARGET_CFLAGS".to_owned(), "--target=t".to_owned()),
+            ("BINDGEN_EXTRA_CLANG_ARGS_x".to_owned(), "-Ii".to_owned()),
+        ]);
+        let warnings = fold_ambient_flags(&mut env, "BINDGEN_EXTRA_CLANG_ARGS_x", |key| {
+            (key == "TARGET_CFLAGS").then(|| "-fsanitize=address".to_owned())
+        });
+        assert_eq!(env["TARGET_CFLAGS"], "--target=t -fsanitize=address");
+        assert_eq!(env["BINDGEN_EXTRA_CLANG_ARGS_x"], "-Ii");
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn fold_keeps_already_composed_ambient_values() {
+        let mut env = BTreeMap::from([("TARGET_CFLAGS".to_owned(), "--target=t".to_owned())]);
+        fold_ambient_flags(&mut env, "B", |key| {
+            (key == "TARGET_CFLAGS").then(|| "--target=t -g".to_owned())
+        });
+        assert_eq!(env["TARGET_CFLAGS"], "--target=t -g");
+    }
+
+    #[test]
+    fn fold_ignores_vars_the_tool_does_not_set() {
+        let mut env = BTreeMap::new();
+        let warnings = fold_ambient_flags(&mut env, "B", |key| {
+            (key == "TARGET_CFLAGS").then(|| "-g".to_owned())
+        });
+        assert!(env.is_empty());
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn fold_warns_about_masked_plain_vars() {
+        let mut env = BTreeMap::from([
+            ("TARGET_CFLAGS".to_owned(), "--target=t".to_owned()),
+            ("BINDGEN_EXTRA_CLANG_ARGS_x".to_owned(), "-Ii".to_owned()),
+        ]);
+        let warnings = fold_ambient_flags(&mut env, "BINDGEN_EXTRA_CLANG_ARGS_x", |key| {
+            matches!(key, "CFLAGS" | "BINDGEN_EXTRA_CLANG_ARGS").then(|| "-g".to_owned())
+        });
+        assert_eq!(env["TARGET_CFLAGS"], "--target=t");
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[0].contains("$CFLAGS"));
+        assert!(warnings[0].contains("$TARGET_CFLAGS"));
+        assert!(warnings[1].contains("$BINDGEN_EXTRA_CLANG_ARGS "));
+    }
+
+    #[test]
+    fn fold_does_not_warn_when_the_specific_var_is_also_ambient() {
+        let mut env = BTreeMap::from([("TARGET_CFLAGS".to_owned(), "--target=t".to_owned())]);
+        let warnings = fold_ambient_flags(&mut env, "B", |key| {
+            matches!(key, "TARGET_CFLAGS" | "CFLAGS").then(|| "-g".to_owned())
+        });
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn sequence_containment() {
+        let flags = |s: &str| s.split(' ').map(str::to_owned).collect::<Vec<_>>();
+        assert!(contains_sequence(&flags("-a -b -c"), &flags("-b -c")));
+        assert!(!contains_sequence(&flags("-a -b"), &flags("-b -c")));
+        assert!(!contains_sequence(&flags("-b"), &flags("-b -c")));
+        assert!(contains_sequence(&flags("-a"), &[]));
     }
 
     #[test]
