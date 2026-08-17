@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - Always generate the cmake toolchain wrapper and set `OHOS_ARCH` in it, so
   cmake-based C dependencies of armv7/x86_64 builds no longer silently
