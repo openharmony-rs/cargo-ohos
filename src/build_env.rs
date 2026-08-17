@@ -62,6 +62,8 @@ pub fn derive(config: &Config) -> Result<BuildEnv, Error> {
     let mut shared_cflags = vec![
         format!("--target={}", target.clang_triple),
         format!("--sysroot={}", posix(&sdk.sysroot)),
+        // The SDK's clang wrapper defines this.
+        "-D__MUSL__".to_owned(),
     ];
     shared_cflags.extend(target.extra_cflags());
 
