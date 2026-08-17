@@ -70,14 +70,17 @@ impl Target {
         self.rust_triple_underscored().to_uppercase()
     }
 
-    /// The `OHOS_ARCH` ABI name understood by the SDK's `ohos.toolchain.cmake`,
-    /// or `None` for architectures the SDK toolchain file does not recognize.
-    pub fn ohos_abi(&self) -> Option<&'static str> {
+    /// The `OHOS_ARCH` ABI name for the SDK's `ohos.toolchain.cmake`.
+    /// `loongarch64` is not supported in the latest SDK (CMake) at the time of
+    /// writing. This will cause a configure fail in the CMake, if CMake is
+    /// used, but should start working once the upstream toolchain file supports
+    /// LoongArch64.
+    pub fn ohos_abi(&self) -> &'static str {
         match self.arch {
-            Arch::Aarch64 => Some("arm64-v8a"),
-            Arch::Armv7 => Some("armeabi-v7a"),
-            Arch::X86_64 => Some("x86_64"),
-            Arch::LoongArch64 => None,
+            Arch::Aarch64 => "arm64-v8a",
+            Arch::Armv7 => "armeabi-v7a",
+            Arch::X86_64 => "x86_64",
+            Arch::LoongArch64 => "loongarch64",
         }
     }
 
