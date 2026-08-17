@@ -70,6 +70,17 @@ impl Target {
         self.rust_triple_underscored().to_uppercase()
     }
 
+    /// The `OHOS_ARCH` ABI name understood by the SDK's `ohos.toolchain.cmake`,
+    /// or `None` for architectures the SDK toolchain file does not recognize.
+    pub fn ohos_abi(&self) -> Option<&'static str> {
+        match self.arch {
+            Arch::Aarch64 => Some("arm64-v8a"),
+            Arch::Armv7 => Some("armeabi-v7a"),
+            Arch::X86_64 => Some("x86_64"),
+            Arch::LoongArch64 => None,
+        }
+    }
+
     pub fn extra_cflags(&self) -> Vec<String> {
         match self.arch {
             Arch::Armv7 => [
