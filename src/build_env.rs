@@ -259,7 +259,7 @@ fn generate_cmake_toolchain(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
-    let dest = generated_dir()
+    let dest = generated_dir()?
         .join(format!("{}-{key}", target.clang_triple))
         .join("ohos.toolchain.cmake");
     let dest = std::path::absolute(&dest).map_err(|source| Error::Io {
@@ -287,11 +287,39 @@ fn write_if_changed(dest: &Path, contents: &str) -> Result<(), Error> {
     })
 }
 
-fn generated_dir() -> PathBuf {
-    let base = std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target"));
-    base.join("ohos-toolchain")
+fn generated_dir() -> Result<PathBuf, Error> {
+    let base = match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => cargo_target_directory()?,
+    };
+    Ok(base.join("ohos-toolchain"))
+}
+
+// A cwd-relative `target/` would be wrong in a workspace member directory and
+// would ignore `build.target-dir` configuration.
+fn cargo_target_directory() -> Result<PathBuf, Error> {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let output = std::process::Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .output()
+        .map_err(|source| Error::CargoMetadata {
+            message: source.to_string(),
+        })?;
+    if !output.status.success() {
+        return Err(Error::CargoMetadata {
+            message: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        });
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Metadata {
+        target_directory: PathBuf,
+    }
+    let metadata: Metadata =
+        serde_json::from_slice(&output.stdout).map_err(|source| Error::CargoMetadata {
+            message: format!("unexpected `cargo metadata` output: {source}"),
+        })?;
+    Ok(metadata.target_directory)
 }
 
 fn posix(path: &Path) -> String {
@@ -324,6 +352,9 @@ pub enum Error {
     JoinPaths {
         source: std::env::JoinPathsError,
     },
+    CargoMetadata {
+        message: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -353,6 +384,10 @@ impl fmt::Display for Error {
             ),
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
             Self::JoinPaths { source } => write!(f, "could not construct path list: {source}"),
+            Self::CargoMetadata { message } => write!(
+                f,
+                "could not determine the cargo target directory via `cargo metadata`: {message}"
+            ),
         }
     }
 }
