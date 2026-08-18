@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Add progressbar (with `indicatif`) for `--download-prebuilt`.
+- Validate `libclang` directory
+
 ## 0.3.0
 
 - Always generate the cmake toolchain wrapper and set `OHOS_ARCH` in it, so

@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use flate2::read::GzDecoder;
 use fs4::FileExt;
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -23,6 +24,7 @@ struct Asset {
     name: String,
     browser_download_url: String,
     digest: Option<String>,
+    size: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -359,21 +361,34 @@ fn download_and_verify(asset: &Asset, expected: &str, destination: &Path) -> Res
     let mut reader = body.into_reader();
     let mut file = File::create(destination)
         .map_err(|e| format!("could not create {}: {e}", destination.display()))?;
+    let progress = ProgressBar::new(asset.size);
+    progress.set_style(
+        ProgressStyle::with_template(
+            "  Downloading [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})",
+        )
+        .expect("valid prebuilt download progress template")
+        .progress_chars("=> "),
+    );
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let count = reader
-            .read(&mut buffer)
-            .map_err(|e| format!("could not download `{}`: {e}", asset.name))?;
-        if count == 0 {
-            break;
+    let transfer = (|| {
+        loop {
+            let count = reader
+                .read(&mut buffer)
+                .map_err(|e| format!("could not download `{}`: {e}", asset.name))?;
+            if count == 0 {
+                break;
+            }
+            file.write_all(&buffer[..count])
+                .map_err(|e| format!("could not write {}: {e}", destination.display()))?;
+            hasher.update(&buffer[..count]);
+            progress.inc(count as u64);
         }
-        file.write_all(&buffer[..count])
-            .map_err(|e| format!("could not write {}: {e}", destination.display()))?;
-        hasher.update(&buffer[..count]);
-    }
-    file.sync_all()
-        .map_err(|e| format!("could not finish {}: {e}", destination.display()))?;
+        file.sync_all()
+            .map_err(|e| format!("could not finish {}: {e}", destination.display()))
+    })();
+    progress.finish_and_clear();
+    transfer?;
     let actual: String = hasher
         .finalize()
         .iter()
@@ -545,6 +560,7 @@ mod tests {
                 name: asset_name.to_owned(),
                 browser_download_url: "https://example.invalid/toolchain.tar.gz".to_owned(),
                 digest: Some(format!("sha256:{}", "a".repeat(64))),
+                size: 1024,
             }],
         }
     }
