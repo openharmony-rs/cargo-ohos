@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- After resolving the OpenHarmony rustc target, install it with
+  `rustup target add` when it is not already present. If rustup is missing,
+  print a clear error instead of letting cargo fail later.
+
 ## 0.3.0
 
 - Always generate the cmake toolchain wrapper and set `OHOS_ARCH` in it, so

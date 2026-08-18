@@ -10,6 +10,10 @@ export OHOS_SDK_NATIVE=/path/to/ohos-sdk/native
 cargo ohos build -t aarch64 --release
 ```
 
+`cargo ohos` installs the matching rustup target (`rustup target add <triple>`)
+if it is not already present. rustup must be on `PATH`; unpublished targets
+such as `loongarch64-unknown-linux-ohos` are not invented.
+
 The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Studio installation location
 (currently only macOS)
 

@@ -1,5 +1,6 @@
 mod build_env;
 mod prebuilt;
+mod rustup;
 mod sdk;
 mod target;
 mod toolchain;
@@ -249,6 +250,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
     }
 
     let options = Options::try_from(options)?;
+    rustup::ensure_target(
+        &Target::parse(&options.target)
+            .map_err(|e| e.to_string())?
+            .rust_triple,
+    )?;
     let mut build_env = options.derive_build_env()?;
 
     let runner_var = format!(
