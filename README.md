@@ -10,8 +10,10 @@ export OHOS_SDK_NATIVE=/path/to/ohos-sdk/native
 cargo ohos build -t aarch64 --release
 ```
 
-The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Studio installation location
-(currently only macOS)
+The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Studio installation
+locations on macOS (`/Applications/DevEco-Studio.app/Contents/sdk`) and Windows
+(`%LOCALAPPDATA%\Huawei\Sdk`, `%LOCALAPPDATA%\Huawei\DevEcoStudio\sdk`, and
+`%PROGRAMFILES%\Huawei\DevEco Studio\sdk`).
 
 ### Pre-set flags
 

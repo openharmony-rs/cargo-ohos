@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Autodetect the OpenHarmony / DevEco SDK on Windows when `--sdk` and the
+  usual environment variables are unset, using the standard DevEco Studio
+  install locations
+
 ## 0.3.0
 
 - Always generate the cmake toolchain wrapper and set `OHOS_ARCH` in it, so

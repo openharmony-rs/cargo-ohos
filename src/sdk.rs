@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use crate::build_env::Error;
@@ -23,8 +24,10 @@ const ENV_CANDIDATES: &[&str] = &[
     "DEVECO_SDK_HOME",
 ];
 
-#[cfg(target_os = "macos")]
-const DEFAULT_DEVECO_SDK_HOME: &str = "/Applications/DevEco-Studio.app/Contents/sdk";
+const DEFAULT_MACOS_DEVECO_SDK_HOME: &str = "/Applications/DevEco-Studio.app/Contents/sdk";
+const DEFAULT_WINDOWS_PROGRAM_FILES_SDK: &str = r"C:\Program Files\Huawei\DevEco Studio\sdk";
+const DEFAULT_WINDOWS_PROGRAM_FILES_X86_SDK: &str =
+    r"C:\Program Files (x86)\Huawei\DevEco Studio\sdk";
 
 impl Sdk {
     pub fn discover(explicit: Option<&Path>) -> Result<Self, Error> {
@@ -47,13 +50,13 @@ impl Sdk {
             tried.push(format!("${var} = {}", path.display()));
         }
 
-        #[cfg(target_os = "macos")]
         if std::env::var_os("DEVECO_SDK_HOME").is_none() {
-            let path = Path::new(DEFAULT_DEVECO_SDK_HOME);
-            if let Some(sdk) = Self::from_candidate(path) {
-                return Ok(sdk);
+            for path in default_sdk_roots() {
+                if let Some(sdk) = Self::from_candidate(&path) {
+                    return Ok(sdk);
+                }
+                tried.push(path.display().to_string());
             }
-            tried.push(path.display().to_string());
         }
 
         if tried.is_empty() {
@@ -134,6 +137,41 @@ impl Sdk {
             version,
             native_root,
         })
+    }
+}
+
+fn default_sdk_roots() -> Vec<PathBuf> {
+    default_sdk_roots_with(std::env::consts::OS, |name| std::env::var_os(name))
+}
+
+fn default_sdk_roots_with(os: &str, env: impl Fn(&str) -> Option<OsString>) -> Vec<PathBuf> {
+    let absolute_env_path = |name| {
+        env(name)
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+    };
+
+    match os {
+        "macos" => vec![PathBuf::from(DEFAULT_MACOS_DEVECO_SDK_HOME)],
+        "windows" => {
+            let mut roots = Vec::new();
+            if let Some(local) = absolute_env_path("LOCALAPPDATA") {
+                roots.push(local.join("Huawei").join("Sdk"));
+                roots.push(local.join("Huawei").join("DevEcoStudio").join("sdk"));
+            }
+            roots.push(
+                absolute_env_path("PROGRAMFILES")
+                    .map(|p| p.join("Huawei").join("DevEco Studio").join("sdk"))
+                    .unwrap_or_else(|| PathBuf::from(DEFAULT_WINDOWS_PROGRAM_FILES_SDK)),
+            );
+            roots.push(
+                absolute_env_path("PROGRAMFILES(X86)")
+                    .map(|p| p.join("Huawei").join("DevEco Studio").join("sdk"))
+                    .unwrap_or_else(|| PathBuf::from(DEFAULT_WINDOWS_PROGRAM_FILES_X86_SDK)),
+            );
+            roots
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -227,5 +265,63 @@ mod tests {
 
         assert_eq!(sdk.api_version, Some(21));
         assert_eq!(sdk.version.as_deref(), Some("6.0.1.112"));
+    }
+
+    #[test]
+    fn default_windows_sdk_roots_use_known_deveco_locations() {
+        let local_app_data = std::env::temp_dir().join("cargo-ohos-local-app-data");
+        let program_files = std::env::temp_dir().join("cargo-ohos-program-files");
+        let program_files_x86 = std::env::temp_dir().join("cargo-ohos-program-files-x86");
+        let roots = default_sdk_roots_with("windows", |name| match name {
+            "LOCALAPPDATA" => Some(local_app_data.clone().into_os_string()),
+            "PROGRAMFILES" => Some(program_files.clone().into_os_string()),
+            "PROGRAMFILES(X86)" => Some(program_files_x86.clone().into_os_string()),
+            _ => None,
+        });
+
+        assert_eq!(
+            roots,
+            [
+                local_app_data.join("Huawei").join("Sdk"),
+                local_app_data
+                    .join("Huawei")
+                    .join("DevEcoStudio")
+                    .join("sdk"),
+                program_files
+                    .join("Huawei")
+                    .join("DevEco Studio")
+                    .join("sdk"),
+                program_files_x86
+                    .join("Huawei")
+                    .join("DevEco Studio")
+                    .join("sdk"),
+            ]
+        );
+    }
+
+    #[test]
+    fn default_windows_sdk_roots_fall_back_without_env() {
+        let roots = default_sdk_roots_with("windows", |_| None);
+
+        assert_eq!(
+            roots,
+            [
+                PathBuf::from(DEFAULT_WINDOWS_PROGRAM_FILES_SDK),
+                PathBuf::from(DEFAULT_WINDOWS_PROGRAM_FILES_X86_SDK),
+            ]
+        );
+    }
+
+    #[test]
+    fn default_macos_sdk_root_is_deveco_app_bundle() {
+        assert_eq!(
+            default_sdk_roots_with("macos", |_| None),
+            [PathBuf::from(DEFAULT_MACOS_DEVECO_SDK_HOME)]
+        );
+    }
+
+    #[test]
+    fn default_linux_sdk_roots_are_empty() {
+        assert!(default_sdk_roots_with("linux", |_| None).is_empty());
     }
 }
