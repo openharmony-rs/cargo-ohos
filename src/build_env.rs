@@ -96,7 +96,9 @@ pub fn derive(config: &Config) -> Result<BuildEnv, Error> {
         .map(|f| format!("-Clink-arg={f}"))
         .collect();
 
+    validate_serialized_flags(&target, &flags)?;
     let runtime_libraries = toolchain.runtime_libraries(&target)?;
+
     let env = build_env_map(config, &sdk, &target, &toolchain, &flags)?;
 
     Ok(BuildEnv {
@@ -107,6 +109,29 @@ pub fn derive(config: &Config) -> Result<BuildEnv, Error> {
         runtime_libraries,
         env,
     })
+}
+
+fn validate_serialized_flags(target: &Target, flags: &Flags) -> Result<(), Error> {
+    let bindgen_var = format!(
+        "BINDGEN_EXTRA_CLANG_ARGS_{}",
+        target.rust_triple_underscored()
+    );
+    for (variable, values) in [
+        ("TARGET_CFLAGS", flags.cflags.as_slice()),
+        ("TARGET_CXXFLAGS", flags.cxxflags.as_slice()),
+        (bindgen_var.as_str(), flags.bindgen.as_slice()),
+    ] {
+        if let Some(flag) = values
+            .iter()
+            .find(|flag| flag.contains(char::is_whitespace))
+        {
+            return Err(Error::WhitespaceInFlag {
+                variable: variable.to_owned(),
+                flag: flag.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn build_env_map(
@@ -354,6 +379,10 @@ pub enum Error {
     WhitespaceInCompilerValue {
         part: String,
     },
+    WhitespaceInFlag {
+        variable: String,
+        flag: String,
+    },
     Io {
         path: PathBuf,
         source: std::io::Error,
@@ -403,6 +432,11 @@ impl fmt::Display for Error {
                 "`{part}` contains whitespace, which `CC` cannot carry because cc-rs splits the \
                  value on it. Use paths without spaces for the SDK and LLVM toolchain."
             ),
+            Self::WhitespaceInFlag { variable, flag } => write!(
+                f,
+                "${variable} cannot represent the generated argument `{flag}` because it \
+                 contains whitespace. Use paths without spaces for the SDK and LLVM toolchain."
+            ),
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
             Self::JoinPaths { source } => write!(f, "could not construct path list: {source}"),
             Self::CargoMetadata { message } => write!(
@@ -433,5 +467,36 @@ mod tests {
         let paths: Vec<PathBuf> = std::env::split_paths(&value).collect();
 
         assert_eq!(paths, [PathBuf::from("first"), PathBuf::from("second")]);
+    }
+
+    #[test]
+    fn rejects_whitespace_in_serialized_flags() {
+        let target = Target::parse("aarch64").unwrap();
+        let flags = Flags {
+            cflags: vec!["--sysroot=C:/Program Files/OpenHarmony/sysroot".to_owned()],
+            ..Flags::default()
+        };
+
+        let error = validate_serialized_flags(&target, &flags).unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::WhitespaceInFlag { variable, flag }
+                if variable == "TARGET_CFLAGS"
+                    && flag == "--sysroot=C:/Program Files/OpenHarmony/sysroot"
+        ));
+    }
+
+    #[test]
+    fn accepts_individually_serializable_flags() {
+        let target = Target::parse("aarch64").unwrap();
+        let flags = Flags {
+            cflags: vec!["--sysroot=/opt/ohos/sdk/sysroot".to_owned()],
+            cxxflags: vec!["--target=aarch64-linux-ohos".to_owned()],
+            bindgen: vec!["-I/opt/ohos/sdk/include".to_owned()],
+            ..Flags::default()
+        };
+
+        validate_serialized_flags(&target, &flags).unwrap();
     }
 }
