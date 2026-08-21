@@ -88,7 +88,6 @@ The array may be empty (if no runtime libraries are required).
 please make sure to use the same flags (specifically `--download-prebuilt` / `--llvm` must match), otherwise
 you could end up with a list of wrong paths.
 
-
 ## License
 
 MIT OR Apache-2.0

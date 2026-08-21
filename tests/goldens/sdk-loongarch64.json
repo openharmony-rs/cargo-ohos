@@ -1,0 +1,93 @@
+{
+  "cargo_ohos_version": "$VERSION",
+  "env": {
+    "BINDGEN_EXTRA_CLANG_ARGS_loongarch64_unknown_linux_ohos": "--target=loongarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -I$SDK/sysroot/usr/include/loongarch64-linux-ohos",
+    "CARGO_ENCODED_RUSTFLAGS": "-Clink-arg=-fuse-ld=lld\u001f-Clink-arg=-Wl,--build-id\u001f-Clink-arg=--target=loongarch64-linux-ohos\u001f-Clink-arg=--sysroot=$SDK/sysroot\u001f-Clink-arg=-D__MUSL__",
+    "CARGO_OHOS_API_LEVEL": "21",
+    "CARGO_OHOS_CLANG_TRIPLE": "loongarch64-linux-ohos",
+    "CARGO_OHOS_SDK_NATIVE": "$SDK",
+    "CARGO_OHOS_SYSROOT": "$SDK/sysroot",
+    "CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_OHOS_LINKER": "$SDK/llvm/bin/clang",
+    "CC_loongarch64-unknown-linux-ohos": "$SDK/llvm/bin/clang",
+    "CC_loongarch64_unknown_linux_ohos": "$SDK/llvm/bin/clang",
+    "CLANG_PATH": "$SDK/llvm/bin/clang++",
+    "CMAKE": "$SDK/build-tools/cmake/bin/cmake",
+    "CMAKE_CXX_COMPILER_loongarch64_unknown_linux_ohos": "$SDK/llvm/bin/clang++",
+    "CMAKE_C_COMPILER_loongarch64_unknown_linux_ohos": "$SDK/llvm/bin/clang",
+    "CMAKE_TOOLCHAIN_FILE_loongarch64_unknown_linux_ohos": "$TARGET_DIR/ohos-toolchain/loongarch64-linux-ohos-<key>/ohos.toolchain.cmake",
+    "CXXSTDLIB_loongarch64_unknown_linux_ohos": "c++",
+    "CXX_loongarch64-unknown-linux-ohos": "$SDK/llvm/bin/clang++",
+    "CXX_loongarch64_unknown_linux_ohos": "$SDK/llvm/bin/clang++",
+    "LIBCLANG_PATH": "$SDK/llvm/lib",
+    "OHOS_SDK_NATIVE": "$SDK",
+    "PKG_CONFIG_PATH_loongarch64_unknown_linux_ohos": "$SDK/sysroot/usr/lib/pkgconfig:$SDK/sysroot/usr/share/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR_loongarch64_unknown_linux_ohos": "$SDK/sysroot",
+    "TARGET_AR": "$SDK/llvm/bin/llvm-ar",
+    "TARGET_CFLAGS": "--target=loongarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__",
+    "TARGET_CPPFLAGS": "--target=loongarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__",
+    "TARGET_CXXFLAGS": "--target=loongarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__",
+    "TARGET_OBJCOPY": "$SDK/llvm/bin/llvm-objcopy",
+    "TARGET_RANLIB": "$SDK/llvm/bin/llvm-ranlib",
+    "TARGET_READELF": "$SDK/llvm/bin/llvm-readelf",
+    "TARGET_STRIP": "$SDK/llvm/bin/llvm-strip"
+  },
+  "flags": {
+    "bindgen": [
+      "--target=loongarch64-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__",
+      "-I$SDK/sysroot/usr/include/loongarch64-linux-ohos"
+    ],
+    "cflags": [
+      "--target=loongarch64-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__"
+    ],
+    "cxxflags": [
+      "--target=loongarch64-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__"
+    ],
+    "ldflags": [
+      "-fuse-ld=lld",
+      "-Wl,--build-id"
+    ],
+    "rustflags": [
+      "-Clink-arg=-fuse-ld=lld",
+      "-Clink-arg=-Wl,--build-id",
+      "-Clink-arg=--target=loongarch64-linux-ohos",
+      "-Clink-arg=--sysroot=$SDK/sysroot",
+      "-Clink-arg=-D__MUSL__"
+    ]
+  },
+  "runtime_libraries": [],
+  "schema_version": 1,
+  "sdk": {
+    "api_version": 21,
+    "cmake": "$SDK/build-tools/cmake/bin/cmake",
+    "cmake_toolchain_file": "$SDK/build/cmake/ohos.toolchain.cmake",
+    "llvm_bin": "$SDK/llvm/bin",
+    "llvm_root": "$SDK/llvm",
+    "native_root": "$SDK",
+    "sysroot": "$SDK/sysroot",
+    "version": "6.0.1.112"
+  },
+  "target": {
+    "arch": "loongarch64",
+    "clang_triple": "loongarch64-linux-ohos",
+    "lib_dir": "loongarch64-linux-ohos",
+    "rust_triple": "loongarch64-unknown-linux-ohos"
+  },
+  "toolchain": {
+    "ar": "$SDK/llvm/bin/llvm-ar",
+    "clang": "$SDK/llvm/bin/clang",
+    "clangxx": "$SDK/llvm/bin/clang++",
+    "external": false,
+    "libclang_dir": "$SDK/llvm/lib",
+    "objcopy": "$SDK/llvm/bin/llvm-objcopy",
+    "ranlib": "$SDK/llvm/bin/llvm-ranlib",
+    "readelf": "$SDK/llvm/bin/llvm-readelf",
+    "root": "$SDK/llvm",
+    "strip": "$SDK/llvm/bin/llvm-strip"
+  }
+}

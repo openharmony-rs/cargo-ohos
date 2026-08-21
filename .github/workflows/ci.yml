@@ -21,7 +21,72 @@ jobs:
         with:
           toolchain: ${{ env.MSRV }}
           components: rustfmt, clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
+      - uses: taiki-e/install-action@just
+      - run: just lint
       - run: cargo build
-      - run: cargo test --all-targets --all-features
+      # The matrix tests need an SDK and skip themselves here; the rest is hermetic.
+      - run: just test
+
+  # The fixture projects in tests/projects, cross-compiled and - where a device of the
+  # target's architecture is attached - run on it. The only difference between the entries
+  # is which device the runner can reach; the tests match cases to devices themselves.
+  matrix:
+    name: fixtures (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: oniro-emulator
+            runs-on: ubuntu-latest
+            emulator: true
+            # The emulator is x86_64; the other targets are built and inspected only.
+            require_device_arches: x86_64
+          # Add a board here once it is wired up to a self-hosted runner, e.g.
+          # - name: dayu200
+          #   runs-on: [self-hosted, dayu200]
+          #   emulator: false
+          #   require_device_arches: aarch64
+    runs-on: ${{ matrix.runs-on }}
+    env:
+      TARGETS: aarch64-unknown-linux-ohos,armv7-unknown-linux-ohos,x86_64-unknown-linux-ohos
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGETS }}
+      - uses: taiki-e/install-action@just
+      - name: Setup OpenHarmony SDK
+        id: sdk
+        uses: openharmony-rs/setup-ohos-sdk@v1
+        with:
+          version: "6.1"
+          # native = clang + sysroot + cmake, toolchains = hdc.
+          components: "native;toolchains"
+          mirror: true
+      - name: Add hdc to PATH
+        run: echo "$(dirname "${{ steps.sdk.outputs.ohos_sdk_native }}")/toolchains" >> "$GITHUB_PATH"
+      - name: Install ohos-test-runner
+        run: cargo install --locked ohos-test-runner
+      - name: Start the Oniro emulator
+        id: emulator
+        if: matrix.emulator
+        uses: openharmony-rs/emulator-action@v1
+      - name: List the attached devices
+        run: hdc list targets
+      - name: Run the fixture matrix
+        run: just test-matrix -- --test-threads=4
+        env:
+          CARGO_OHOS_TEST_SDK: ${{ steps.sdk.outputs.ohos_sdk_native }}
+          # Missing prerequisites and unreachable devices fail the job instead of skipping.
+          CARGO_OHOS_TEST_REQUIRE: "1"
+          CARGO_OHOS_TEST_REQUIRE_DEVICE_ARCHES: ${{ matrix.require_device_arches }}
+          CARGO_OHOS_TEST_DOWNLOAD_PREBUILT: "19"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Composite actions cannot register a post: step, so keep the emulator log ourselves.
+      - name: Upload the emulator log
+        if: always() && matrix.emulator
+        uses: actions/upload-artifact@v7
+        with:
+          name: oniro-emulator-log-${{ matrix.name }}
+          path: ${{ steps.emulator.outputs.log-path }}
+          if-no-files-found: warn
