@@ -1,0 +1,96 @@
+{
+  "cargo_ohos_version": "$VERSION",
+  "env": {
+    "BINDGEN_EXTRA_CLANG_ARGS_aarch64_unknown_linux_ohos": "--target=aarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -I$SDK/sysroot/usr/include/aarch64-linux-ohos",
+    "CARGO_ENCODED_RUSTFLAGS": "-Clink-arg=-fuse-ld=lld\u001f-Clink-arg=-Wl,--build-id\u001f-Clink-arg=--target=aarch64-linux-ohos\u001f-Clink-arg=--sysroot=$SDK/sysroot\u001f-Clink-arg=-D__MUSL__",
+    "CARGO_OHOS_API_LEVEL": "21",
+    "CARGO_OHOS_CLANG_TRIPLE": "aarch64-linux-ohos",
+    "CARGO_OHOS_SDK_NATIVE": "$SDK",
+    "CARGO_OHOS_SYSROOT": "$SDK/sysroot",
+    "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER": "$LLVM/bin/clang",
+    "CC_aarch64-unknown-linux-ohos": "$LLVM/bin/clang --target=aarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -Wno-unused-command-line-argument",
+    "CC_aarch64_unknown_linux_ohos": "$LLVM/bin/clang --target=aarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -Wno-unused-command-line-argument",
+    "CLANG_PATH": "$LLVM/bin/clang++",
+    "CMAKE": "$SDK/build-tools/cmake/bin/cmake",
+    "CMAKE_CXX_COMPILER_aarch64_unknown_linux_ohos": "$LLVM/bin/clang++",
+    "CMAKE_C_COMPILER_aarch64_unknown_linux_ohos": "$LLVM/bin/clang",
+    "CMAKE_TOOLCHAIN_FILE_aarch64_unknown_linux_ohos": "$TARGET_DIR/ohos-toolchain/aarch64-linux-ohos-<key>/ohos.toolchain.cmake",
+    "CXXSTDLIB_aarch64_unknown_linux_ohos": "c++",
+    "CXX_aarch64-unknown-linux-ohos": "$LLVM/bin/clang++ --target=aarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -Wno-unused-command-line-argument",
+    "CXX_aarch64_unknown_linux_ohos": "$LLVM/bin/clang++ --target=aarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -Wno-unused-command-line-argument",
+    "LIBCLANG_PATH": "$LLVM/lib",
+    "OHOS_SDK_NATIVE": "$SDK",
+    "PKG_CONFIG_PATH_aarch64_unknown_linux_ohos": "$SDK/sysroot/usr/lib/pkgconfig:$SDK/sysroot/usr/share/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_ohos": "$SDK/sysroot",
+    "TARGET_AR": "$LLVM/bin/llvm-ar",
+    "TARGET_OBJCOPY": "$LLVM/bin/llvm-objcopy",
+    "TARGET_RANLIB": "$LLVM/bin/llvm-ranlib",
+    "TARGET_READELF": "$LLVM/bin/llvm-readelf",
+    "TARGET_STRIP": "$LLVM/bin/llvm-strip"
+  },
+  "flags": {
+    "bindgen": [
+      "--target=aarch64-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__",
+      "-I$SDK/sysroot/usr/include/aarch64-linux-ohos"
+    ],
+    "cflags": [
+      "--target=aarch64-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__"
+    ],
+    "cxxflags": [
+      "--target=aarch64-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__"
+    ],
+    "ldflags": [
+      "-fuse-ld=lld",
+      "-Wl,--build-id"
+    ],
+    "rustflags": [
+      "-Clink-arg=-fuse-ld=lld",
+      "-Clink-arg=-Wl,--build-id",
+      "-Clink-arg=--target=aarch64-linux-ohos",
+      "-Clink-arg=--sysroot=$SDK/sysroot",
+      "-Clink-arg=-D__MUSL__"
+    ]
+  },
+  "runtime_libraries": [
+    {
+      "kind": "cxx_stdlib",
+      "path": "$LLVM/lib/aarch64-linux-ohos/libc++.so",
+      "soname": "libc++.so"
+    }
+  ],
+  "schema_version": 1,
+  "sdk": {
+    "api_version": 21,
+    "cmake": "$SDK/build-tools/cmake/bin/cmake",
+    "cmake_toolchain_file": "$SDK/build/cmake/ohos.toolchain.cmake",
+    "llvm_bin": "$SDK/llvm/bin",
+    "llvm_root": "$SDK/llvm",
+    "native_root": "$SDK",
+    "sysroot": "$SDK/sysroot",
+    "version": "6.0.1.112"
+  },
+  "target": {
+    "arch": "aarch64",
+    "clang_triple": "aarch64-linux-ohos",
+    "lib_dir": "aarch64-linux-ohos",
+    "rust_triple": "aarch64-unknown-linux-ohos"
+  },
+  "toolchain": {
+    "ar": "$LLVM/bin/llvm-ar",
+    "clang": "$LLVM/bin/clang",
+    "clangxx": "$LLVM/bin/clang++",
+    "external": true,
+    "libclang_dir": "$LLVM/lib",
+    "objcopy": "$LLVM/bin/llvm-objcopy",
+    "ranlib": "$LLVM/bin/llvm-ranlib",
+    "readelf": "$LLVM/bin/llvm-readelf",
+    "root": "$LLVM",
+    "strip": "$LLVM/bin/llvm-strip"
+  }
+}

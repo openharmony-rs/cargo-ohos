@@ -1,0 +1,9 @@
+# A fixture of the cargo-ohos test matrix. Not part of the cargo-ohos workspace: it is built
+# by the tests with `cargo ohos build`/`cargo ohos test`, for an OpenHarmony target.
+[package]
+name = "fixture-rust-only"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]

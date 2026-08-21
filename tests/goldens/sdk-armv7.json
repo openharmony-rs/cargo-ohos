@@ -1,0 +1,109 @@
+{
+  "cargo_ohos_version": "$VERSION",
+  "env": {
+    "BINDGEN_EXTRA_CLANG_ARGS_armv7_unknown_linux_ohos": "--target=armv7-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -march=armv7-a -mfloat-abi=softfp -mtune=generic-armv7-a -mthumb -I$SDK/sysroot/usr/include/arm-linux-ohos",
+    "CARGO_ENCODED_RUSTFLAGS": "-Clink-arg=-fuse-ld=lld\u001f-Clink-arg=-Wl,--build-id\u001f-Clink-arg=--target=armv7-linux-ohos\u001f-Clink-arg=--sysroot=$SDK/sysroot\u001f-Clink-arg=-D__MUSL__\u001f-Clink-arg=-march=armv7-a\u001f-Clink-arg=-mfloat-abi=softfp\u001f-Clink-arg=-mtune=generic-armv7-a\u001f-Clink-arg=-mthumb",
+    "CARGO_OHOS_API_LEVEL": "21",
+    "CARGO_OHOS_CLANG_TRIPLE": "armv7-linux-ohos",
+    "CARGO_OHOS_SDK_NATIVE": "$SDK",
+    "CARGO_OHOS_SYSROOT": "$SDK/sysroot",
+    "CARGO_TARGET_ARMV7_UNKNOWN_LINUX_OHOS_LINKER": "$SDK/llvm/bin/clang",
+    "CC_armv7-unknown-linux-ohos": "$SDK/llvm/bin/clang",
+    "CC_armv7_unknown_linux_ohos": "$SDK/llvm/bin/clang",
+    "CLANG_PATH": "$SDK/llvm/bin/clang++",
+    "CMAKE": "$SDK/build-tools/cmake/bin/cmake",
+    "CMAKE_CXX_COMPILER_armv7_unknown_linux_ohos": "$SDK/llvm/bin/clang++",
+    "CMAKE_C_COMPILER_armv7_unknown_linux_ohos": "$SDK/llvm/bin/clang",
+    "CMAKE_TOOLCHAIN_FILE_armv7_unknown_linux_ohos": "$TARGET_DIR/ohos-toolchain/armv7-linux-ohos-<key>/ohos.toolchain.cmake",
+    "CXXSTDLIB_armv7_unknown_linux_ohos": "c++",
+    "CXX_armv7-unknown-linux-ohos": "$SDK/llvm/bin/clang++",
+    "CXX_armv7_unknown_linux_ohos": "$SDK/llvm/bin/clang++",
+    "LIBCLANG_PATH": "$SDK/llvm/lib",
+    "OHOS_SDK_NATIVE": "$SDK",
+    "PKG_CONFIG_PATH_armv7_unknown_linux_ohos": "$SDK/sysroot/usr/lib/pkgconfig:$SDK/sysroot/usr/share/pkgconfig",
+    "PKG_CONFIG_SYSROOT_DIR_armv7_unknown_linux_ohos": "$SDK/sysroot",
+    "TARGET_AR": "$SDK/llvm/bin/llvm-ar",
+    "TARGET_CFLAGS": "--target=armv7-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -march=armv7-a -mfloat-abi=softfp -mtune=generic-armv7-a -mthumb",
+    "TARGET_CPPFLAGS": "--target=armv7-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -march=armv7-a -mfloat-abi=softfp -mtune=generic-armv7-a -mthumb",
+    "TARGET_CXXFLAGS": "--target=armv7-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -march=armv7-a -mfloat-abi=softfp -mtune=generic-armv7-a -mthumb",
+    "TARGET_OBJCOPY": "$SDK/llvm/bin/llvm-objcopy",
+    "TARGET_RANLIB": "$SDK/llvm/bin/llvm-ranlib",
+    "TARGET_READELF": "$SDK/llvm/bin/llvm-readelf",
+    "TARGET_STRIP": "$SDK/llvm/bin/llvm-strip"
+  },
+  "flags": {
+    "bindgen": [
+      "--target=armv7-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__",
+      "-march=armv7-a",
+      "-mfloat-abi=softfp",
+      "-mtune=generic-armv7-a",
+      "-mthumb",
+      "-I$SDK/sysroot/usr/include/arm-linux-ohos"
+    ],
+    "cflags": [
+      "--target=armv7-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__",
+      "-march=armv7-a",
+      "-mfloat-abi=softfp",
+      "-mtune=generic-armv7-a",
+      "-mthumb"
+    ],
+    "cxxflags": [
+      "--target=armv7-linux-ohos",
+      "--sysroot=$SDK/sysroot",
+      "-D__MUSL__",
+      "-march=armv7-a",
+      "-mfloat-abi=softfp",
+      "-mtune=generic-armv7-a",
+      "-mthumb"
+    ],
+    "ldflags": [
+      "-fuse-ld=lld",
+      "-Wl,--build-id"
+    ],
+    "rustflags": [
+      "-Clink-arg=-fuse-ld=lld",
+      "-Clink-arg=-Wl,--build-id",
+      "-Clink-arg=--target=armv7-linux-ohos",
+      "-Clink-arg=--sysroot=$SDK/sysroot",
+      "-Clink-arg=-D__MUSL__",
+      "-Clink-arg=-march=armv7-a",
+      "-Clink-arg=-mfloat-abi=softfp",
+      "-Clink-arg=-mtune=generic-armv7-a",
+      "-Clink-arg=-mthumb"
+    ]
+  },
+  "runtime_libraries": [],
+  "schema_version": 1,
+  "sdk": {
+    "api_version": 21,
+    "cmake": "$SDK/build-tools/cmake/bin/cmake",
+    "cmake_toolchain_file": "$SDK/build/cmake/ohos.toolchain.cmake",
+    "llvm_bin": "$SDK/llvm/bin",
+    "llvm_root": "$SDK/llvm",
+    "native_root": "$SDK",
+    "sysroot": "$SDK/sysroot",
+    "version": "6.0.1.112"
+  },
+  "target": {
+    "arch": "armv7",
+    "clang_triple": "armv7-linux-ohos",
+    "lib_dir": "arm-linux-ohos",
+    "rust_triple": "armv7-unknown-linux-ohos"
+  },
+  "toolchain": {
+    "ar": "$SDK/llvm/bin/llvm-ar",
+    "clang": "$SDK/llvm/bin/clang",
+    "clangxx": "$SDK/llvm/bin/clang++",
+    "external": false,
+    "libclang_dir": "$SDK/llvm/lib",
+    "objcopy": "$SDK/llvm/bin/llvm-objcopy",
+    "ranlib": "$SDK/llvm/bin/llvm-ranlib",
+    "readelf": "$SDK/llvm/bin/llvm-readelf",
+    "root": "$SDK/llvm",
+    "strip": "$SDK/llvm/bin/llvm-strip"
+  }
+}

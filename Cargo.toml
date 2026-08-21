@@ -7,6 +7,10 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/openharmony-rs/cargo-ohos"
 rust-version = "1.88"
 readme = "README.md"
+# The integration tests need an OpenHarmony SDK, a device or the fixture projects, which are
+# cargo packages of their own. None of it is usable from the published crate, so the whole
+# directory stays out rather than only the parts the test sources read.
+exclude = ["tests"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -18,3 +22,6 @@ serde_json = "1"
 sha2 = "0.11"
 tar = "0.4"
 ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
+
+[dev-dependencies]
+md-5 = "0.11"
