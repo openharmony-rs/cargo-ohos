@@ -5,8 +5,8 @@ mod target;
 mod toolchain;
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
-use std::path::PathBuf;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -218,6 +218,10 @@ fn cargo_commands_help() -> String {
 }
 
 const TEST_RUNNER: &str = "ohos-test-runner";
+/// Tells the test runner which libraries to send to the device alongside the binary.
+const TEST_RUNNER_RUNTIME_LIBRARIES: &str = "OHOS_TEST_RUNNER_RUNTIME_LIBRARIES";
+/// Major, minor, patch.
+const REQUIRED_TEST_RUNNER_VERSION: (u64, u64, u64) = (0, 1, 5);
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
     let args = match cli.command {
@@ -255,19 +259,38 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         "CARGO_TARGET_{}_RUNNER",
         build_env.target.rust_triple_upper()
     );
-    if runs_target_binaries(&name, &rest) && std::env::var_os(&runner_var).is_none() {
-        match find_in_path(TEST_RUNNER) {
-            Some(runner) => {
+    if runs_target_binaries(&name, &rest) {
+        let runner = match std::env::var_os(&runner_var) {
+            // The runner is the user's choice, we only recognize our own to version-check it.
+            Some(configured) => configured_test_runner(&configured),
+            None => {
+                let Some(runner) = find_in_path(TEST_RUNNER) else {
+                    return Err(format!(
+                        "`cargo ohos {name}` runs binaries on a connected device, which needs \
+                         `{TEST_RUNNER}`. Install it with `cargo install --locked {TEST_RUNNER}`."
+                    ));
+                };
                 build_env
                     .env
                     .insert(runner_var, runner.to_string_lossy().into_owned());
+                Some(runner)
             }
-            None => {
-                return Err(format!(
-                    "`cargo ohos {name}` runs binaries on a connected device, which needs \
-                     `{TEST_RUNNER}`. Install it with `cargo install --locked {TEST_RUNNER}`."
-                ))
-            }
+        };
+        if let Some(runner) = &runner {
+            check_test_runner_version(runner)?;
+        }
+        if !build_env.runtime_libraries.is_empty() {
+            let paths = build_env
+                .runtime_libraries
+                .iter()
+                .map(|library| &library.path);
+            let value = std::env::join_paths(paths).map_err(|source| {
+                format!("The runtime library paths cannot be joined for the test runner: {source}")
+            })?;
+            build_env.env.insert(
+                TEST_RUNNER_RUNTIME_LIBRARIES.to_owned(),
+                value.to_string_lossy().into_owned(),
+            );
         }
     }
 
@@ -304,6 +327,58 @@ fn runs_target_binaries(name: &str, rest: &[OsString]) -> bool {
             .iter()
             .take_while(|arg| arg.as_os_str() != "--")
             .any(|arg| arg == "--no-run" || arg == "--help" || arg == "-h")
+}
+
+/// The configured runner, if it is an `ohos-test-runner` we can version-check.
+///
+/// Cargo reads the variable as a command line, so the program is the first word.
+fn configured_test_runner(configured: &OsStr) -> Option<PathBuf> {
+    let program = PathBuf::from(configured.to_str()?.split_whitespace().next()?);
+    (program.file_stem()? == TEST_RUNNER).then_some(program)
+}
+
+/// Rejects a test runner older than [`REQUIRED_TEST_RUNNER_VERSION`].
+///
+/// Older runners ignore the runtime libraries and leave them on the host, so a binary linked
+/// with an external toolchain either fails to start with `symbol not found` errors, or happens
+/// to work against the device's own C++ runtime.
+fn check_test_runner_version(runner: &Path) -> Result<(), String> {
+    let (major, minor, patch) = REQUIRED_TEST_RUNNER_VERSION;
+    let reason = format!(
+        "`cargo ohos` requires {TEST_RUNNER} {major}.{minor}.{patch} or newer. Update it with \
+         `cargo install --locked {TEST_RUNNER}`."
+    );
+    let found = Command::new(runner)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| parse_version(&String::from_utf8_lossy(&output.stdout)));
+    match found {
+        // Versions before 0.1.2 do not support `--version`.
+        None => Err(format!(
+            "Could not determine the version of `{}`: {reason}",
+            runner.display()
+        )),
+        Some(found) if found < REQUIRED_TEST_RUNNER_VERSION => {
+            let (major, minor, patch) = found;
+            Err(format!(
+                "`{}` is version {major}.{minor}.{patch}: {reason}",
+                runner.display()
+            ))
+        }
+        Some(_) => Ok(()),
+    }
+}
+
+/// Parses the version out of a `<program> <version>` line, ignoring any pre-release suffix.
+fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
+    let token = text.lines().next()?.split_whitespace().next_back()?;
+    let mut components = token.split(['-', '+']).next()?.split('.');
+    let major = components.next()?.parse().ok()?;
+    let minor = components.next()?.parse().ok()?;
+    let patch = components.next().unwrap_or("0").parse().ok()?;
+    components.next().is_none().then_some((major, minor, patch))
 }
 
 fn find_in_path(name: &str) -> Option<PathBuf> {
@@ -554,6 +629,51 @@ fn spawn(build_env: Option<&BuildEnv>, argv: &[OsString]) -> Result<ExitCode, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_tool_version_output() {
+        assert_eq!(parse_version("ohos-test-runner 0.1.5\n"), Some((0, 1, 5)));
+        assert_eq!(
+            parse_version("ohos-test-runner 1.2.3-rc.1"),
+            Some((1, 2, 3))
+        );
+        assert_eq!(parse_version("ohos-test-runner 0.2"), Some((0, 2, 0)));
+    }
+
+    #[test]
+    fn rejects_unparseable_version_output() {
+        for text in [
+            "",
+            "Binary not found: --version",
+            "tool 0.1.5.2",
+            "tool next",
+        ] {
+            assert_eq!(parse_version(text), None, "text: {text}");
+        }
+    }
+
+    #[test]
+    fn orders_versions_against_the_requirement() {
+        assert!(parse_version("t 0.1.4").unwrap() < REQUIRED_TEST_RUNNER_VERSION);
+        assert!(parse_version("t 0.1.5").unwrap() >= REQUIRED_TEST_RUNNER_VERSION);
+        assert!(parse_version("t 0.2.0").unwrap() >= REQUIRED_TEST_RUNNER_VERSION);
+    }
+
+    #[test]
+    fn recognizes_only_our_own_configured_runner() {
+        let runner = |value: &str| configured_test_runner(OsStr::new(value));
+
+        assert_eq!(
+            runner("/opt/bin/ohos-test-runner"),
+            Some(PathBuf::from("/opt/bin/ohos-test-runner"))
+        );
+        // Cargo reads the variable as a command line.
+        assert_eq!(
+            runner("ohos-test-runner --flag"),
+            Some(PathBuf::from("ohos-test-runner"))
+        );
+        assert_eq!(runner("qemu-aarch64"), None);
+    }
 
     #[test]
     fn split_stops_at_double_dash() {
