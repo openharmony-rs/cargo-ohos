@@ -505,6 +505,7 @@ fn emit(build_env: &BuildEnv, format: Format) {
                 "target": build_env.target,
                 "toolchain": build_env.toolchain,
                 "flags": build_env.flags,
+                "runtime_libraries": build_env.runtime_libraries,
                 "env": env,
             });
             println!(

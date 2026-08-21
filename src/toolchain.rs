@@ -2,9 +2,18 @@ use std::path::{Path, PathBuf};
 
 use crate::build_env::Error;
 use crate::sdk::Sdk;
+use crate::target::Target;
+
+/// The soname of the C++ standard library an external toolchain links against.
+/// The SDK's `libc++.so` is a linker script selecting `libc++_shared.so` instead.
+const LIBCXX_SONAME: &str = "libc++.so";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Toolchain {
+    /// The `llvm` directory the tools were resolved from.
+    pub root: PathBuf,
+    /// Whether `root` is a toolchain of its own rather than the SDK's.
+    pub external: bool,
     pub clang: PathBuf,
     pub clangxx: PathBuf,
     pub ar: PathBuf,
@@ -13,6 +22,22 @@ pub struct Toolchain {
     pub objcopy: PathBuf,
     pub readelf: PathBuf,
     pub libclang_dir: PathBuf,
+}
+
+/// A shared library of the toolchain which linked output depends on at runtime, but which
+/// no OpenHarmony system provides, so the application has to bundle it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RuntimeLibrary {
+    pub path: PathBuf,
+    /// The `DT_NEEDED` entry this library satisfies.
+    pub soname: String,
+    pub kind: RuntimeLibraryKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeLibraryKind {
+    CxxStdlib,
 }
 
 impl Toolchain {
@@ -37,6 +62,7 @@ impl Toolchain {
         };
         let bin = root.join("bin");
         Ok(Self {
+            external: llvm.is_some(),
             clang: tool(&bin, "clang")?,
             clangxx: tool(&bin, "clang++")?,
             ar: tool(&bin, "llvm-ar")?,
@@ -45,7 +71,28 @@ impl Toolchain {
             objcopy: tool(&bin, "llvm-objcopy")?,
             readelf: tool(&bin, "llvm-readelf")?,
             libclang_dir: libclang_dir(&root)?,
+            root,
         })
+    }
+
+    /// The toolchain libraries an application linked with this toolchain may need to bundle.
+    pub fn runtime_libraries(&self, target: &Target) -> Result<Vec<RuntimeLibrary>, Error> {
+        if !self.external {
+            return Ok(Vec::new());
+        }
+        let path = self
+            .root
+            .join("lib")
+            .join(&target.lib_dir)
+            .join(LIBCXX_SONAME);
+        if !path.is_file() {
+            return Err(Error::MissingRuntimeLibrary { path });
+        }
+        Ok(vec![RuntimeLibrary {
+            path,
+            soname: LIBCXX_SONAME.to_owned(),
+            kind: RuntimeLibraryKind::CxxStdlib,
+        }])
     }
 }
 

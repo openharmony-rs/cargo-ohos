@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- The JSON output has a new `runtime_libraries` array listing the toolchain libraries an
+  application may need to bundle. Please check the Readme for more details and limitations.
+- The `toolchain` JSON object gained `root` and `external`.
+
 ## 0.3.1
 
 - Add progressbar (with `indicatif`) for `--download-prebuilt`.

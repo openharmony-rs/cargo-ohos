@@ -61,6 +61,34 @@ export CARGO_OHOS_DOWNLOAD_PREBUILT=19
 `--download-prebuilt` replaces `--llvm`/`OHOS_LLVM`. If GitHub's anonymous API rate limit is
 insufficient, `cargo-ohos` and `gh` use `GITHUB_TOKEN` when it is set.
 
+When using a custom LLVM toolchain and compiling C++, the custom LLVM libc++ should be used.
+Upstream uses a different ABI namespace compared to the SDK and has the soname `libc++.so` rather
+than the `libc++_shared.so` that apps use on OpenHarmony.
+Similar considerations apply for other runtime libraries (e.g. for ASAN / TSAN, which we don't support yet).
+When packaging a `.hap` you need to bundle these libraries, which are reported when running `cargo ohos env --format json` 
+under `runtime_libraries`:
+
+```json
+"runtime_libraries": [
+  # You can use `kind` to filter out libraries you know your app doesn't need, e.g.
+  # if you don't have any dependencies using C++, then you don't need libc++. 
+  # When you are packaging your .hap you could check `DT_NEEDED` and compare against
+  # the libraries in this list to determine what to ship.
+  {
+    "path": "<path>/llvm/lib/aarch64-linux-ohos/libc++.so",
+    "soname": "libc++.so",
+    "kind": "cxx_stdlib"
+  }
+]
+```
+
+The array may be empty (if no runtime libraries are required).
+
+**Attention**: If you use `cargo ohos build` and additionally `cargo ohos env` to determine the runtime libraries,
+please make sure to use the same flags (specifically `--download-prebuilt` / `--llvm` must match), otherwise
+you could end up with a list of wrong paths.
+
+
 ## License
 
 MIT OR Apache-2.0
