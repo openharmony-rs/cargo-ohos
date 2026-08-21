@@ -5,6 +5,8 @@
 - The JSON output has a new `runtime_libraries` array listing the toolchain libraries an
   application may need to bundle. Please check the Readme for more details and limitations.
 - The `toolchain` JSON object gained `root` and `external`.
+- `cargo ohos test`/`run`/`bench` support sending required toolchain libraries to the device.
+- `cargo ohos test`/`run`/`bench` now require `ohos-test-runner` 0.1.5 or newer.
 
 ## 0.3.1
 
