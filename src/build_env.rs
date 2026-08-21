@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 use crate::sdk::Sdk;
 use crate::target::Target;
-use crate::toolchain::Toolchain;
+use crate::toolchain::{RuntimeLibrary, Toolchain};
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct Flags {
@@ -23,6 +23,7 @@ pub struct BuildEnv {
     pub target: Target,
     pub toolchain: Toolchain,
     pub flags: Flags,
+    pub runtime_libraries: Vec<RuntimeLibrary>,
     pub env: BTreeMap<String, String>,
 }
 
@@ -95,6 +96,7 @@ pub fn derive(config: &Config) -> Result<BuildEnv, Error> {
         .map(|f| format!("-Clink-arg={f}"))
         .collect();
 
+    let runtime_libraries = toolchain.runtime_libraries(&target)?;
     let env = build_env_map(config, &sdk, &target, &toolchain, &flags)?;
 
     Ok(BuildEnv {
@@ -102,6 +104,7 @@ pub fn derive(config: &Config) -> Result<BuildEnv, Error> {
         target,
         toolchain,
         flags,
+        runtime_libraries,
         env,
     })
 }
@@ -342,6 +345,9 @@ pub enum Error {
     MissingLibclang {
         path: PathBuf,
     },
+    MissingRuntimeLibrary {
+        path: PathBuf,
+    },
     WhitespaceInCompilerValue {
         part: String,
     },
@@ -381,6 +387,12 @@ impl fmt::Display for Error {
                 f,
                 "No libclang shared library found in {}. bindgen would silently fall back to \
                  whatever libclang the host provides instead of the toolchain's.",
+                path.display()
+            ),
+            Self::MissingRuntimeLibrary { path } => write!(
+                f,
+                "The toolchain is missing the C++ runtime library {}, which an application \
+                 linked with it has to bundle.",
                 path.display()
             ),
             Self::WhitespaceInCompilerValue { part } => write!(
