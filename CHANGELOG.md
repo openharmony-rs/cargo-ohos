@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- Add `cargo ohos init sdk --version <VERSION>` to download and cache the OpenHarmony SDK from
+  the `openharmony-rs/ohos-sdk` mirror. The archive is verified against the mirror's SHA-256 checksum.
+
 ## 0.3.2
 
 - The JSON output has a new `runtime_libraries` array listing the toolchain libraries an

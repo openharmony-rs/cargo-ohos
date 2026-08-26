@@ -13,6 +13,22 @@ cargo ohos build -t aarch64 --release
 The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Studio installation location
 (currently only macOS)
 
+### Downloading the SDK
+
+`cargo-ohos` can download and cache the SDK from the
+[openharmony-rs/ohos-sdk](https://github.com/openharmony-rs/ohos-sdk) mirror :
+
+```sh
+cargo ohos init sdk --version=6.0.0.1
+```
+
+`--version` takes a full or prefix SDK version (`6.0` selects the newest `6.0.x`), and selects
+the newest matching release. The archive is verified against the mirror's SHA-256 checksum.
+The command prints how to persist the `OHOS_SDK_NATIVE` environment variable, so subsequent
+`cargo ohos` invocations find the SDK automatically. The downloaded SDK is cached under
+`~/.cache/cargo-ohos/ohos-sdk` on Linux, `~/Library/Caches/cargo-ohos/ohos-sdk` on macOS, and
+`%LOCALAPPDATA%\cargo-ohos\ohos-sdk` on Windows.
+
 ### Pre-set flags
 
 The cargo subcommands (`cargo ohos build`, ...) prepend their flags to any user-defined
