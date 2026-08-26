@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 
+use fs4::FileExt;
+
 use crate::build_env::Error;
+use crate::download;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Sdk {
@@ -25,6 +28,18 @@ const ENV_CANDIDATES: &[&str] = &[
 
 #[cfg(target_os = "macos")]
 const DEFAULT_DEVECO_SDK_HOME: &str = "/Applications/DevEco-Studio.app/Contents/sdk";
+
+const SDK_RELEASES_URL: &str =
+    "https://api.github.com/repos/openharmony-rs/ohos-sdk/releases?per_page=100";
+const SDK_CACHE_SUBDIR: &str = "ohos-sdk";
+
+struct Selection {
+    version: String,
+    archive_name: &'static str,
+    os_dir_name: &'static str,
+    parts: Vec<download::Asset>,
+    sha256_asset: download::Asset,
+}
 
 impl Sdk {
     pub fn discover(explicit: Option<&Path>) -> Result<Self, Error> {
@@ -60,6 +75,25 @@ impl Sdk {
             tried.push(format!("none of ${} are set", ENV_CANDIDATES.join(", $")));
         }
         Err(Error::SdkNotFound { tried })
+    }
+
+    /// Download and cache the newest matching OpenHarmony SDK release, returning
+    /// the `native` directory. The SDK is fetched from the `openharmony-rs/ohos-sdk`
+    /// GitHub mirror, which is much faster than the upstream Huawei mirrors.
+    pub fn download(version: &str) -> Result<PathBuf, String> {
+        if !download::is_safe_component(version) {
+            return Err(format!(
+                "invalid OpenHarmony SDK version `{version}`; expected a version such as `6.0.0.1`"
+            ));
+        }
+        let releases = download::releases(SDK_RELEASES_URL, SDK_CACHE_SUBDIR)?;
+        let selection = select(
+            releases,
+            version,
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+        )?;
+        install(&selection)
     }
 
     // This is a very liberal check. The different environment variables we consider point to
@@ -137,6 +171,379 @@ impl Sdk {
     }
 }
 
+fn select(
+    releases: Vec<download::Release>,
+    requested: &str,
+    os: &str,
+    arch: &str,
+) -> Result<Selection, String> {
+    let archive_name = host_archive_name(os, arch).ok_or_else(|| {
+        format!("OpenHarmony SDK archives are not available for host {os}-{arch}")
+    })?;
+    let release = releases
+        .into_iter()
+        .find(|release| {
+            !release.draft
+                && release
+                    .tag_name
+                    .strip_prefix('v')
+                    .is_some_and(|version| download::version_matches(requested, version))
+        })
+        .ok_or_else(|| format!("no OpenHarmony SDK release matches version `{requested}`"))?;
+    let version = release
+        .tag_name
+        .strip_prefix('v')
+        .expect("selected release has the v prefix")
+        .to_owned();
+    if !download::is_safe_component(&version) {
+        return Err(format!(
+            "release `{}` has an unsafe version name",
+            release.tag_name
+        ));
+    }
+    let mut parts: Vec<download::Asset> = Vec::new();
+    let mut sha256_asset: Option<download::Asset> = None;
+    for asset in release.assets {
+        if is_archive_part(&asset.name, archive_name) {
+            parts.push(asset);
+        } else if asset.name == format!("{archive_name}.sha256") {
+            sha256_asset = Some(asset);
+        }
+    }
+    if parts.is_empty() {
+        return Err(format!(
+            "release `{}` has no SDK archive for host {}",
+            release.tag_name, os
+        ));
+    }
+    let sha256_asset = sha256_asset.ok_or_else(|| {
+        format!(
+            "release `{}` has no SHA-256 checksum for {}",
+            release.tag_name, archive_name
+        )
+    })?;
+    parts.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(Selection {
+        version,
+        archive_name,
+        os_dir_name: os_dir_name(os),
+        parts,
+        sha256_asset,
+    })
+}
+
+fn host_archive_name(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        // Linux and Windows share a single archive, which contains both `linux`
+        // and `windows` directories.
+        ("linux", _) | ("windows", _) => Some("ohos-sdk-windows_linux-public.tar.gz"),
+        ("macos", "aarch64") => Some("L2-SDK-MAC-M1-PUBLIC.tar.gz"),
+        ("macos", "x86_64") => Some("ohos-sdk-mac-public.tar.gz"),
+        _ => None,
+    }
+}
+
+fn os_dir_name(os: &str) -> &'static str {
+    match os {
+        "macos" => "darwin",
+        "windows" => "windows",
+        _ => "linux",
+    }
+}
+
+fn is_archive_part(name: &str, archive_name: &str) -> bool {
+    name == archive_name
+        || name
+            .strip_prefix(archive_name)
+            .is_some_and(|suffix| suffix.starts_with('.') && suffix != ".sha256")
+}
+
+fn install(selection: &Selection) -> Result<PathBuf, String> {
+    let root = download::cache_root(SDK_CACHE_SUBDIR);
+    std::fs::create_dir_all(&root)
+        .map_err(|e| format!("could not create {}: {e}", root.display()))?;
+
+    let lock_path = root.join(format!(
+        "{}-{}.lock",
+        selection.version, selection.os_dir_name
+    ));
+    let lock = download::open_lock(&lock_path)?;
+    FileExt::lock(&lock).map_err(|e| format!("could not lock {}: {e}", lock_path.display()))?;
+
+    let install_base = root.join(&selection.version).join(selection.os_dir_name);
+    let marker = selection_marker(selection);
+    if let Some(native) = existing_native(&install_base, &marker) {
+        eprintln!(
+            "note: using cached OpenHarmony SDK {} from {}",
+            selection.version,
+            native.display()
+        );
+        return Ok(native);
+    }
+
+    let archive_path = root.join(format!(
+        ".download-sdk-{}-{}.tar.gz",
+        selection.os_dir_name,
+        std::process::id()
+    ));
+    let staging = root.join(format!(
+        ".extract-sdk-{}-{}",
+        selection.os_dir_name,
+        std::process::id()
+    ));
+    download::remove_dir_if_exists(&staging)?;
+    download::remove_file_if_exists(&archive_path)?;
+
+    let result = (|| {
+        fetch_and_verify_archive(selection, &archive_path)?;
+        std::fs::create_dir(&staging)
+            .map_err(|e| format!("could not create {}: {e}", staging.display()))?;
+        download::extract_tar_gz(&archive_path, &staging)?;
+        let components_dir = find_components_dir(&staging, selection.os_dir_name)?;
+        let api_version = extract_components(&components_dir)?;
+
+        std::fs::create_dir_all(&install_base)
+            .map_err(|e| format!("could not create {}: {e}", install_base.display()))?;
+        let final_version_dir = install_base.join(api_version.to_string());
+        download::remove_dir_if_exists(&final_version_dir)?;
+        std::fs::rename(
+            components_dir.join(api_version.to_string()),
+            &final_version_dir,
+        )
+        .map_err(|e| {
+            format!(
+                "could not install SDK into {}: {e}",
+                final_version_dir.display()
+            )
+        })?;
+        std::fs::write(install_base.join(download::COMPLETE_MARKER), &marker)
+            .map_err(|e| format!("could not mark {} complete: {e}", install_base.display()))?;
+
+        Ok(final_version_dir.join("native"))
+    })();
+
+    let _ = std::fs::remove_file(&archive_path);
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
+fn existing_native(install_base: &Path, marker: &str) -> Option<PathBuf> {
+    if std::fs::read_to_string(install_base.join(download::COMPLETE_MARKER))
+        .ok()
+        .as_deref()
+        != Some(marker)
+    {
+        return None;
+    }
+    for entry in std::fs::read_dir(install_base).ok()? {
+        let native = entry.ok()?.path().join("native");
+        if native.is_dir() {
+            return Some(native);
+        }
+    }
+    None
+}
+
+fn selection_marker(selection: &Selection) -> String {
+    let mut marker = format!("{}\n{}\n", selection.version, selection.archive_name);
+    for part in &selection.parts {
+        marker.push_str(&part.name);
+        marker.push('\n');
+    }
+    marker
+}
+
+/// Download the archive (concatenating any split parts), verify it against the
+/// mirror's `.sha256` checksum, and write the result to `archive_path`.
+fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Result<(), String> {
+    let root = download::cache_root(SDK_CACHE_SUBDIR);
+
+    // Download the tiny checksum file first to learn the expected digest. The
+    // `openharmony-rs/ohos-sdk` mirror always publishes this file, unlike the
+    // GitHub `digest` field which is missing for older releases.
+    let sha256_path = root.join(format!(
+        ".download-sdk-sha256-{}-{}",
+        selection.os_dir_name,
+        std::process::id()
+    ));
+    download::download(&selection.sha256_asset, &sha256_path)?;
+    let expected = std::fs::read_to_string(&sha256_path)
+        .map_err(|e| format!("could not read {}: {e}", sha256_path.display()))?;
+    let _ = std::fs::remove_file(&sha256_path);
+    let expected = expected
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !(expected.len() == 64 && expected.bytes().all(|b| b.is_ascii_hexdigit())) {
+        return Err(format!(
+            "asset `{}` has no valid SHA-256 digest",
+            selection.sha256_asset.name
+        ));
+    }
+
+    let mut part_paths = Vec::new();
+    for (index, part) in selection.parts.iter().enumerate() {
+        let part_path = root.join(format!(
+            ".download-sdk-{}-{}-part{index}",
+            selection.os_dir_name,
+            std::process::id()
+        ));
+        download::download(part, &part_path)?;
+        part_paths.push(part_path);
+    }
+
+    let result = concat_parts(&part_paths, archive_path);
+    for part_path in part_paths {
+        let _ = std::fs::remove_file(part_path);
+    }
+    result?;
+
+    let actual = download::sha256_file(archive_path)?;
+    if actual != expected {
+        return Err(format!(
+            "SHA-256 mismatch for the OpenHarmony SDK archive: expected {expected}, got {actual}"
+        ));
+    }
+    Ok(())
+}
+
+fn concat_parts(part_paths: &[PathBuf], archive_path: &Path) -> Result<(), String> {
+    let mut output = std::fs::File::create(archive_path)
+        .map_err(|e| format!("could not create {}: {e}", archive_path.display()))?;
+    for part_path in part_paths {
+        let mut input = std::fs::File::open(part_path)
+            .map_err(|e| format!("could not open {}: {e}", part_path.display()))?;
+        std::io::copy(&mut input, &mut output)
+            .map_err(|e| format!("could not concatenate {}: {e}", part_path.display()))?;
+    }
+    Ok(())
+}
+
+fn find_components_dir(staging: &Path, os_dir_name: &str) -> Result<PathBuf, String> {
+    // Prefer a directory named after the host OS that contains component archives.
+    if let Some(dir) = find_dir_with_zips(staging, Some(os_dir_name)) {
+        return Ok(dir);
+    }
+    // Fall back to any directory containing component archives.
+    find_dir_with_zips(staging, None)
+        .ok_or_else(|| "downloaded archive does not contain OpenHarmony SDK components".to_owned())
+}
+
+fn find_dir_with_zips(root: &Path, name: Option<&str>) -> Option<PathBuf> {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        if !dir.is_dir() {
+            continue;
+        }
+        let matches_name = name
+            .map(|name| dir.file_name().is_some_and(|file_name| file_name == name))
+            .unwrap_or(true);
+        if matches_name && has_zip(&dir) {
+            return Some(dir);
+        }
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn has_zip(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .any(|entry| entry.path().extension().is_some_and(|ext| ext == "zip"))
+        })
+        .unwrap_or(false)
+}
+
+fn extract_components(components_dir: &Path) -> Result<u32, String> {
+    let mut zips: Vec<PathBuf> = std::fs::read_dir(components_dir)
+        .map_err(|e| format!("could not inspect {}: {e}", components_dir.display()))?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "zip"))
+        .collect();
+    zips.sort();
+
+    if zips.is_empty() {
+        return Err(format!(
+            "no OpenHarmony SDK components found in {}",
+            components_dir.display()
+        ));
+    }
+
+    for zip_path in &zips {
+        let file = std::fs::File::open(zip_path)
+            .map_err(|e| format!("could not open {}: {e}", zip_path.display()))?;
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(|e| format!("could not read {}: {e}", zip_path.display()))?;
+        archive
+            .extract(components_dir)
+            .map_err(|e| format!("could not extract {}: {e}", zip_path.display()))?;
+        std::fs::remove_file(zip_path)
+            .map_err(|e| format!("could not remove {}: {e}", zip_path.display()))?;
+    }
+
+    // Each extracted component directory contains an `oh-uni-package.json`.
+    let mut component_dirs = Vec::new();
+    let mut api_version: Option<u32> = None;
+    for entry in std::fs::read_dir(components_dir)
+        .map_err(|e| format!("could not inspect {}: {e}", components_dir.display()))?
+    {
+        let entry =
+            entry.map_err(|e| format!("could not inspect {}: {e}", components_dir.display()))?;
+        let path = entry.path();
+        if path.is_dir() && path.join("oh-uni-package.json").is_file() {
+            component_dirs.push(path.clone());
+            if api_version.is_none() {
+                api_version = read_api_version(&path);
+            }
+        }
+    }
+
+    let api_version = api_version.ok_or_else(|| {
+        format!(
+            "could not determine the API version of the OpenHarmony SDK in {}",
+            components_dir.display()
+        )
+    })?;
+
+    let version_dir = components_dir.join(api_version.to_string());
+    std::fs::create_dir_all(&version_dir)
+        .map_err(|e| format!("could not create {}: {e}", version_dir.display()))?;
+    for component_dir in component_dirs {
+        let name = component_dir.file_name().expect("component dir has a name");
+        std::fs::rename(&component_dir, version_dir.join(name))
+            .map_err(|e| format!("could not move {}: {e}", component_dir.display()))?;
+    }
+
+    Ok(api_version)
+}
+
+fn read_api_version(dir: &Path) -> Option<u32> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct UniPackage {
+        #[serde(default)]
+        api_version: Option<serde_json::Value>,
+    }
+    let text = std::fs::read_to_string(dir.join("oh-uni-package.json")).ok()?;
+    let package: UniPackage = serde_json::from_str(&text).ok()?;
+    package.api_version.as_ref().and_then(|value| match value {
+        serde_json::Value::String(s) => s.trim().parse().ok(),
+        serde_json::Value::Number(n) => n.as_u64()?.try_into().ok(),
+        _ => None,
+    })
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UniPackage {
@@ -173,6 +580,7 @@ fn exe(path: &Path) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
@@ -227,5 +635,124 @@ mod tests {
 
         assert_eq!(sdk.api_version, Some(21));
         assert_eq!(sdk.version.as_deref(), Some("6.0.1.112"));
+    }
+
+    fn release(tag: &str, assets: &[&str]) -> download::Release {
+        download::Release {
+            tag_name: tag.to_owned(),
+            draft: false,
+            assets: assets
+                .iter()
+                .map(|name| download::Asset {
+                    name: name.to_string(),
+                    browser_download_url: format!("https://example.invalid/{name}"),
+                    size: 1024,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn maps_hosts_to_sdk_archives() {
+        assert_eq!(
+            host_archive_name("linux", "x86_64"),
+            Some("ohos-sdk-windows_linux-public.tar.gz")
+        );
+        assert_eq!(
+            host_archive_name("windows", "x86_64"),
+            Some("ohos-sdk-windows_linux-public.tar.gz")
+        );
+        assert_eq!(
+            host_archive_name("macos", "aarch64"),
+            Some("L2-SDK-MAC-M1-PUBLIC.tar.gz")
+        );
+        assert_eq!(
+            host_archive_name("macos", "x86_64"),
+            Some("ohos-sdk-mac-public.tar.gz")
+        );
+        assert_eq!(host_archive_name("freebsd", "x86_64"), None);
+    }
+
+    #[test]
+    fn recognizes_split_archive_parts() {
+        let name = "ohos-sdk-windows_linux-public.tar.gz";
+        assert!(is_archive_part(name, name));
+        assert!(is_archive_part(&format!("{name}.aa"), name));
+        assert!(is_archive_part(&format!("{name}.ab"), name));
+        assert!(!is_archive_part(&format!("{name}.sha256"), name));
+        assert!(!is_archive_part("other-archive.tar.gz", name));
+    }
+
+    #[test]
+    fn selects_the_newest_matching_sdk_and_parts() {
+        let releases = vec![
+            release(
+                "v6.1",
+                &[
+                    "ohos-sdk-windows_linux-public.tar.gz.aa",
+                    "ohos-sdk-windows_linux-public.tar.gz.ab",
+                    "ohos-sdk-windows_linux-public.tar.gz.sha256",
+                ],
+            ),
+            release(
+                "v6.0.0.1",
+                &[
+                    "ohos-sdk-windows_linux-public.tar.gz.aa",
+                    "ohos-sdk-windows_linux-public.tar.gz.ab",
+                    "ohos-sdk-windows_linux-public.tar.gz.sha256",
+                ],
+            ),
+        ];
+        let selection = select(releases, "6.0", "linux", "x86_64").unwrap();
+
+        assert_eq!(selection.version, "6.0.0.1");
+        assert_eq!(selection.os_dir_name, "linux");
+        assert_eq!(selection.parts.len(), 2);
+        assert_eq!(
+            selection.parts[0].name,
+            "ohos-sdk-windows_linux-public.tar.gz.aa"
+        );
+        assert_eq!(
+            selection.sha256_asset.name,
+            "ohos-sdk-windows_linux-public.tar.gz.sha256"
+        );
+    }
+
+    #[test]
+    fn rejects_sdk_releases_without_a_checksum() {
+        let releases = vec![release(
+            "v6.0",
+            &[
+                "ohos-sdk-windows_linux-public.tar.gz.aa",
+                "ohos-sdk-windows_linux-public.tar.gz.ab",
+            ],
+        )];
+        assert!(select(releases, "6.0", "linux", "x86_64").is_err());
+    }
+
+    #[test]
+    fn extracts_components_and_groups_by_api_version() {
+        let temp = TestDir::new();
+        let components = temp.0.join("linux");
+        std::fs::create_dir(&components).unwrap();
+
+        let zip_path = components.join("native-linux-x64-1.0.0.zip");
+        {
+            let file = std::fs::File::create(&zip_path).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("native/oh-uni-package.json", options)
+                .unwrap();
+            zip.write_all(br#"{"apiVersion":"20","version":"6.0.0.47"}"#)
+                .unwrap();
+            zip.finish().unwrap();
+        }
+
+        let api_version = extract_components(&components).unwrap();
+
+        assert_eq!(api_version, 20);
+        assert!(components.join("20/native/oh-uni-package.json").is_file());
+        assert!(!zip_path.exists());
     }
 }

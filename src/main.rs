@@ -1,4 +1,5 @@
 mod build_env;
+mod download;
 mod prebuilt;
 mod sdk;
 mod target;
@@ -39,8 +40,23 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = Format::Json)]
         format: Format,
     },
+    /// Download and set up the OpenHarmony toolchain.
+    Init {
+        #[command(subcommand)]
+        command: InitCmd,
+    },
     #[command(external_subcommand)]
     Cargo(Vec<OsString>),
+}
+
+#[derive(Subcommand)]
+enum InitCmd {
+    /// Download and cache the OpenHarmony SDK.
+    Sdk {
+        /// OpenHarmony SDK version (or prefix), e.g. `6.0.0.1`.
+        #[arg(long, value_name = "VERSION")]
+        version: String,
+    },
 }
 
 #[derive(Args, Default)]
@@ -231,6 +247,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             emit(&build_env, format);
             return Ok(ExitCode::SUCCESS);
         }
+        Cmd::Init { command } => {
+            run_init(command)?;
+            return Ok(ExitCode::SUCCESS);
+        }
         Cmd::Cargo(args) => args,
     };
     let (options, rest) = split_cargo_args(args)?;
@@ -303,6 +323,28 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         format!("--target={}", build_env.target.rust_triple).into(),
     );
     spawn(Some(&build_env), &argv)
+}
+
+fn run_init(command: InitCmd) -> Result<(), String> {
+    match command {
+        InitCmd::Sdk { version } => {
+            let native = sdk::Sdk::download(&version)?;
+            print_sdk_instructions(&native);
+            Ok(())
+        }
+    }
+}
+
+fn print_sdk_instructions(native: &Path) {
+    let native = native.to_string_lossy().replace('\\', "/");
+    println!("OpenHarmony SDK installed at:");
+    println!("  {native}");
+    println!();
+    println!("Persist the location so cargo-ohos can find it, e.g. add to your shell profile:");
+    println!("  export OHOS_SDK_NATIVE=\"{native}\"");
+    println!();
+    println!("Or pass it on each invocation with:");
+    println!("  cargo ohos build --sdk \"{native}\"");
 }
 
 fn wants_cargo_help(rest: &[OsString]) -> bool {
