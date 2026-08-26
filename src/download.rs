@@ -1,6 +1,7 @@
 //! Shared helpers for downloading, verifying, and caching artifacts from
 //! GitHub releases.
 
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -20,6 +21,7 @@ pub const RELEASE_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 pub struct Asset {
     pub name: String,
     pub browser_download_url: String,
+    pub digest: Option<String>,
     pub size: u64,
 }
 
@@ -120,24 +122,26 @@ pub fn open_lock(path: &Path) -> Result<File, String> {
 }
 
 pub fn cache_root(subdir: &str) -> PathBuf {
-    let cache_base = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| match std::env::consts::OS {
-            "macos" => std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .map(|home| home.join("Library").join("Caches")),
-            "windows" => std::env::var_os("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .or_else(|| std::env::var_os("HOME").map(PathBuf::from)),
-            _ => std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .map(|home| home.join(".cache")),
-        });
+    cache_root_with(subdir, std::env::consts::OS, |name| std::env::var_os(name))
+}
+
+pub fn cache_root_with(subdir: &str, os: &str, env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
+    let absolute_env_path = |name| {
+        env(name)
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+    };
+    let cache_base = absolute_env_path("XDG_CACHE_HOME").or_else(|| match os {
+        "macos" => absolute_env_path("HOME").map(|home| home.join("Library/Caches")),
+        "windows" => absolute_env_path("LOCALAPPDATA")
+            .or_else(|| absolute_env_path("HOME").map(|home| home.join(".cache"))),
+        _ => absolute_env_path("HOME").map(|home| home.join(".cache")),
+    });
+
     cache_base
         .map(|base| base.join("cargo-ohos").join(subdir))
         .unwrap_or_else(|| {
-            std::env::var_os("CARGO_TARGET_DIR")
+            env("CARGO_TARGET_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("target"))
                 .join(subdir)
@@ -272,5 +276,50 @@ mod tests {
             digest,
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         );
+    }
+
+    #[test]
+    fn uses_shared_platform_cache_directories() {
+        let root = |subdir, os, variables: &[(&str, &Path)]| {
+            cache_root_with(subdir, os, |name| {
+                variables
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| value.as_os_str().to_owned())
+            })
+        };
+        let base = std::env::temp_dir().join("cargo-ohos-cache-root-test");
+        let xdg_cache = base.join("xdg-cache");
+        let linux_home = base.join("linux-home");
+        let macos_home = base.join("macos-home");
+        let local_app_data = base.join("local-app-data");
+
+        assert_eq!(
+            root("ohos-llvm", "linux", &[("XDG_CACHE_HOME", &xdg_cache)]),
+            xdg_cache.join("cargo-ohos/ohos-llvm")
+        );
+        assert_eq!(
+            root("ohos-llvm", "linux", &[("HOME", &linux_home)]),
+            linux_home.join(".cache/cargo-ohos/ohos-llvm")
+        );
+        assert_eq!(
+            root("ohos-sdk", "macos", &[("HOME", &macos_home)]),
+            macos_home.join("Library/Caches/cargo-ohos/ohos-sdk")
+        );
+        assert_eq!(
+            root("ohos-sdk", "windows", &[("LOCALAPPDATA", &local_app_data)]),
+            local_app_data.join("cargo-ohos/ohos-sdk")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_project_cache_without_an_absolute_user_cache() {
+        let root = cache_root_with("ohos-sdk", "linux", |name| match name {
+            "XDG_CACHE_HOME" => Some(OsString::from("relative-cache")),
+            "CARGO_TARGET_DIR" => Some(OsString::from("custom-target")),
+            _ => None,
+        });
+
+        assert_eq!(root, Path::new("custom-target/ohos-sdk"));
     }
 }
