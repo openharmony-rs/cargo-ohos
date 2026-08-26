@@ -79,7 +79,7 @@ impl Sdk {
 
     /// Download and cache the newest matching OpenHarmony SDK release, returning
     /// the `native` directory. The SDK is fetched from the `openharmony-rs/ohos-sdk`
-    /// GitHub mirror, which is much faster than the upstream Huawei mirrors.
+    /// GitHub mirror.
     pub fn download(version: &str) -> Result<PathBuf, String> {
         if !download::is_safe_component(version) {
             return Err(format!(
@@ -504,7 +504,7 @@ fn extract_components(components_dir: &Path) -> Result<u32, String> {
         if path.is_dir() && path.join("oh-uni-package.json").is_file() {
             component_dirs.push(path.clone());
             if api_version.is_none() {
-                api_version = read_api_version(&path);
+                api_version = read_metadata(&path).0;
             }
         }
     }
@@ -526,22 +526,6 @@ fn extract_components(components_dir: &Path) -> Result<u32, String> {
     }
 
     Ok(api_version)
-}
-
-fn read_api_version(dir: &Path) -> Option<u32> {
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct UniPackage {
-        #[serde(default)]
-        api_version: Option<serde_json::Value>,
-    }
-    let text = std::fs::read_to_string(dir.join("oh-uni-package.json")).ok()?;
-    let package: UniPackage = serde_json::from_str(&text).ok()?;
-    package.api_version.as_ref().and_then(|value| match value {
-        serde_json::Value::String(s) => s.trim().parse().ok(),
-        serde_json::Value::Number(n) => n.as_u64()?.try_into().ok(),
-        _ => None,
-    })
 }
 
 #[derive(serde::Deserialize)]
@@ -646,6 +630,7 @@ mod tests {
                 .map(|name| download::Asset {
                     name: name.to_string(),
                     browser_download_url: format!("https://example.invalid/{name}"),
+                    digest: None,
                     size: 1024,
                 })
                 .collect(),

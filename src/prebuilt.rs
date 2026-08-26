@@ -1,38 +1,15 @@
-use std::ffi::OsString;
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::Duration;
 
-use flate2::read::GzDecoder;
 use fs4::FileExt;
-use indicatif::{ProgressBar, ProgressStyle};
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
+
+use crate::download;
 
 const RELEASES_URL: &str =
     "https://api.github.com/repos/openharmony-rs/ohos-llvm-toolchains/releases?per_page=100";
 const RELEASE_REPOSITORY: &str = "openharmony-rs/ohos-llvm-toolchains";
 const SIGNER_WORKFLOW: &str = "openharmony-rs/ohos-llvm-toolchains/.github/workflows/mirror.yml";
-const USER_AGENT: &str = concat!("cargo-ohos/", env!("CARGO_PKG_VERSION"));
-const COMPLETE_MARKER: &str = ".cargo-ohos-complete";
-const RELEASE_CACHE_TTL: Duration = Duration::from_secs(60 * 60);
-
-#[derive(Clone, Debug, Deserialize)]
-struct Asset {
-    name: String,
-    browser_download_url: String,
-    digest: Option<String>,
-    size: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct Release {
-    tag_name: String,
-    draft: bool,
-    assets: Vec<Asset>,
-}
+const CACHE_SUBDIR: &str = "ohos-llvm";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Host {
@@ -44,13 +21,13 @@ struct Host {
 struct Selection {
     version: String,
     host: Host,
-    asset: Asset,
+    asset: download::Asset,
     sha256: String,
 }
 
 pub fn resolve(requested: &str) -> Result<PathBuf, String> {
     validate_version(requested)?;
-    let releases = releases()?;
+    let releases = download::releases(RELEASES_URL, CACHE_SUBDIR)?;
     let selection = select(
         releases,
         requested,
@@ -58,83 +35,6 @@ pub fn resolve(requested: &str) -> Result<PathBuf, String> {
         std::env::consts::ARCH,
     )?;
     install(&selection)
-}
-
-fn releases() -> Result<Vec<Release>, String> {
-    let root = cache_root();
-    std::fs::create_dir_all(&root)
-        .map_err(|e| format!("could not create {}: {e}", root.display()))?;
-    let cache = root.join("releases.json");
-    let lock_path = root.join("releases.lock");
-    let lock = open_lock(&lock_path)?;
-    FileExt::lock(&lock).map_err(|e| format!("could not lock {}: {e}", lock_path.display()))?;
-
-    if cache_is_fresh(&cache) {
-        if let Ok(releases) = read_cached_releases(&cache) {
-            return Ok(releases);
-        }
-    }
-
-    match fetch_release_json() {
-        Ok(json) => {
-            let releases = parse_releases(&json, RELEASES_URL)?;
-            std::fs::write(&cache, json)
-                .map_err(|e| format!("could not write {}: {e}", cache.display()))?;
-            Ok(releases)
-        }
-        Err(network_error) => match read_cached_releases(&cache) {
-            Ok(releases) => {
-                eprintln!(
-                    "warning: {network_error}; using cached GitHub release metadata from {}",
-                    cache.display()
-                );
-                Ok(releases)
-            }
-            Err(_) => Err(network_error),
-        },
-    }
-}
-
-fn fetch_release_json() -> Result<String, String> {
-    let response = request(RELEASES_URL)?;
-    let (_, body) = response.into_parts();
-    let mut json = String::new();
-    body.into_reader()
-        .read_to_string(&mut json)
-        .map_err(|e| format!("could not read response from {RELEASES_URL}: {e}"))?;
-    Ok(json)
-}
-
-fn read_cached_releases(path: &Path) -> Result<Vec<Release>, String> {
-    let json = std::fs::read_to_string(path)
-        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    parse_releases(&json, &path.display().to_string())
-}
-
-fn parse_releases(json: &str, source: &str) -> Result<Vec<Release>, String> {
-    serde_json::from_str(json).map_err(|e| format!("invalid release metadata from {source}: {e}"))
-}
-
-fn cache_is_fresh(path: &Path) -> bool {
-    path.metadata()
-        .and_then(|metadata| metadata.modified())
-        .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
-        .is_ok_and(|age| age <= RELEASE_CACHE_TTL)
-}
-
-fn request(url: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
-    let mut request = ureq::get(url)
-        .header("User-Agent", USER_AGENT)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28");
-    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
-        if !token.is_empty() && url.starts_with("https://api.github.com/") {
-            request = request.header("Authorization", format!("Bearer {token}"));
-        }
-    }
-    request
-        .call()
-        .map_err(|e| format!("request to {url} failed: {e}"))
 }
 
 pub fn validate_version(version: &str) -> Result<(), String> {
@@ -151,7 +51,7 @@ pub fn validate_version(version: &str) -> Result<(), String> {
 }
 
 fn select(
-    releases: Vec<Release>,
+    releases: Vec<download::Release>,
     requested: &str,
     os: &str,
     arch: &str,
@@ -166,7 +66,7 @@ fn select(
                 && release
                     .tag_name
                     .strip_prefix("toolchain-")
-                    .is_some_and(|version| version_matches(requested, version))
+                    .is_some_and(|version| download::version_matches(requested, version))
         })
         .ok_or_else(|| {
             format!("no prebuilt OpenHarmony LLVM release matches version `{requested}`")
@@ -176,7 +76,7 @@ fn select(
         .strip_prefix("toolchain-")
         .expect("selected release has the toolchain prefix")
         .to_owned();
-    if !is_safe_component(&version) {
+    if !download::is_safe_component(&version) {
         return Err(format!(
             "release `{}` has an unsafe version name",
             release.tag_name
@@ -207,20 +107,6 @@ fn select(
     })
 }
 
-fn version_matches(requested: &str, candidate: &str) -> bool {
-    candidate == requested
-        || candidate
-            .strip_prefix(requested)
-            .is_some_and(|suffix| suffix.starts_with('.') || suffix.starts_with('-'))
-}
-
-fn is_safe_component(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
-}
-
 fn host(os: &str, arch: &str) -> Option<Host> {
     match (os, arch) {
         ("linux", "x86_64") => Some(Host {
@@ -244,12 +130,12 @@ fn host(os: &str, arch: &str) -> Option<Host> {
 }
 
 fn install(selection: &Selection) -> Result<PathBuf, String> {
-    let root = cache_root();
+    let root = download::cache_root(CACHE_SUBDIR);
     std::fs::create_dir_all(&root)
         .map_err(|e| format!("could not create {}: {e}", root.display()))?;
 
     let lock_path = root.join(format!("{}-{}.lock", selection.version, selection.host.id));
-    let lock = open_lock(&lock_path)?;
+    let lock = download::open_lock(&lock_path)?;
     FileExt::lock(&lock).map_err(|e| format!("could not lock {}: {e}", lock_path.display()))?;
 
     let install_dir = root
@@ -258,7 +144,7 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
         .join("llvm");
     let marker = format!("{}\n{}\n", selection.asset.name, selection.sha256);
     if looks_like_toolchain(&install_dir)
-        && std::fs::read_to_string(install_dir.join(COMPLETE_MARKER))
+        && std::fs::read_to_string(install_dir.join(download::COMPLETE_MARKER))
             .ok()
             .as_deref()
             == Some(&marker)
@@ -281,22 +167,22 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
         selection.host.id,
         std::process::id()
     ));
-    remove_dir_if_exists(&staging)?;
-    remove_file_if_exists(&archive_path)?;
+    download::remove_dir_if_exists(&staging)?;
+    download::remove_file_if_exists(&archive_path)?;
 
     let result = (|| {
         download_and_verify(&selection.asset, &selection.sha256, &archive_path)?;
         verify_attestation(&archive_path)?;
         std::fs::create_dir(&staging)
             .map_err(|e| format!("could not create {}: {e}", staging.display()))?;
-        extract(&archive_path, &staging)?;
+        download::extract_tar_gz(&archive_path, &staging)?;
         let extracted = find_toolchain_root(&staging)?;
 
         if let Some(parent) = install_dir.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
         }
-        remove_dir_if_exists(&install_dir)?;
+        download::remove_dir_if_exists(&install_dir)?;
         std::fs::rename(&extracted, &install_dir).map_err(|e| {
             format!(
                 "could not install {} as {}: {e}",
@@ -304,7 +190,7 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
                 install_dir.display()
             )
         })?;
-        std::fs::write(install_dir.join(COMPLETE_MARKER), &marker)
+        std::fs::write(install_dir.join(download::COMPLETE_MARKER), &marker)
             .map_err(|e| format!("could not mark {} complete: {e}", install_dir.display()))?;
         Ok(install_dir.clone())
     })();
@@ -314,86 +200,13 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
     result
 }
 
-fn open_lock(path: &Path) -> Result<File, String> {
-    OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .map_err(|e| format!("could not open {}: {e}", path.display()))
-}
-
-fn cache_root() -> PathBuf {
-    cache_root_with(std::env::consts::OS, |name| std::env::var_os(name))
-}
-
-fn cache_root_with(os: &str, env: impl Fn(&str) -> Option<OsString>) -> PathBuf {
-    let absolute_env_path = |name| {
-        env(name)
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-    };
-    let cache_base = absolute_env_path("XDG_CACHE_HOME").or_else(|| match os {
-        "macos" => absolute_env_path("HOME").map(|home| home.join("Library/Caches")),
-        "windows" => absolute_env_path("LOCALAPPDATA")
-            .or_else(|| absolute_env_path("HOME").map(|home| home.join(".cache"))),
-        _ => absolute_env_path("HOME").map(|home| home.join(".cache")),
-    });
-
-    cache_base
-        .map(|base| base.join("cargo-ohos").join("ohos-llvm"))
-        .unwrap_or_else(|| {
-            env("CARGO_TARGET_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("target"))
-                .join("ohos-llvm")
-        })
-}
-
-fn download_and_verify(asset: &Asset, expected: &str, destination: &Path) -> Result<(), String> {
-    eprintln!(
-        "note: downloading prebuilt OpenHarmony LLVM asset `{}` (this is cached)",
-        asset.name
-    );
-    let response = request(&asset.browser_download_url)?;
-    let (_, body) = response.into_parts();
-    let mut reader = body.into_reader();
-    let mut file = File::create(destination)
-        .map_err(|e| format!("could not create {}: {e}", destination.display()))?;
-    let progress = ProgressBar::new(asset.size);
-    progress.set_style(
-        ProgressStyle::with_template(
-            "  Downloading [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})",
-        )
-        .expect("valid prebuilt download progress template")
-        .progress_chars("=> "),
-    );
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    let transfer = (|| {
-        loop {
-            let count = reader
-                .read(&mut buffer)
-                .map_err(|e| format!("could not download `{}`: {e}", asset.name))?;
-            if count == 0 {
-                break;
-            }
-            file.write_all(&buffer[..count])
-                .map_err(|e| format!("could not write {}: {e}", destination.display()))?;
-            hasher.update(&buffer[..count]);
-            progress.inc(count as u64);
-        }
-        file.sync_all()
-            .map_err(|e| format!("could not finish {}: {e}", destination.display()))
-    })();
-    progress.finish_and_clear();
-    transfer?;
-    let actual: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+fn download_and_verify(
+    asset: &download::Asset,
+    expected: &str,
+    destination: &Path,
+) -> Result<(), String> {
+    download::download(asset, destination)?;
+    let actual = download::sha256_file(destination)?;
     if actual != expected {
         return Err(format!(
             "SHA-256 mismatch for `{}`: expected {expected}, got {actual}",
@@ -471,17 +284,6 @@ fn with_command_output(mut message: String, stdout: &[u8], stderr: &[u8]) -> Str
     message
 }
 
-fn extract(archive_path: &Path, destination: &Path) -> Result<(), String> {
-    eprintln!("note: extracting {}", archive_path.display());
-    let file = File::open(archive_path)
-        .map_err(|e| format!("could not open {}: {e}", archive_path.display()))?;
-    let decoder = GzDecoder::new(file);
-    let mut archive = tar::Archive::new(decoder);
-    archive
-        .unpack(destination)
-        .map_err(|e| format!("could not extract {}: {e}", archive_path.display()))
-}
-
 fn find_toolchain_root(staging: &Path) -> Result<PathBuf, String> {
     if looks_like_toolchain(staging) {
         return Ok(staging.to_path_buf());
@@ -508,27 +310,13 @@ fn looks_like_toolchain(path: &Path) -> bool {
     path.join("bin").is_dir() && path.join("include").join("libcxx-ohos").is_dir()
 }
 
-fn remove_dir_if_exists(path: &Path) -> Result<(), String> {
-    match std::fs::remove_dir_all(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("could not remove {}: {e}", path.display())),
-    }
-}
-
-fn remove_file_if_exists(path: &Path) -> Result<(), String> {
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(format!("could not remove {}: {e}", path.display())),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+    use crate::download::{Asset, Release};
 
     static NEXT_TEMP_DIR: AtomicUsize = AtomicUsize::new(0);
 
@@ -563,15 +351,6 @@ mod tests {
                 size: 1024,
             }],
         }
-    }
-
-    #[test]
-    fn version_prefixes_match_at_component_boundaries() {
-        assert!(version_matches("19", "19.1.4-79830f"));
-        assert!(version_matches("19.1.4", "19.1.4-79830f"));
-        assert!(version_matches("19.1.4-79830f", "19.1.4-79830f"));
-        assert!(!version_matches("19", "190.0.0"));
-        assert!(!version_matches("19.1.5", "19.1.4-79830f"));
     }
 
     #[test]
@@ -615,51 +394,6 @@ mod tests {
     }
 
     #[test]
-    fn uses_shared_platform_cache_directories() {
-        let root = |os, variables: &[(&str, &Path)]| {
-            cache_root_with(os, |name| {
-                variables
-                    .iter()
-                    .find(|(key, _)| *key == name)
-                    .map(|(_, value)| value.as_os_str().to_owned())
-            })
-        };
-        let base = std::env::temp_dir().join("cargo-ohos-cache-root-test");
-        let xdg_cache = base.join("xdg-cache");
-        let linux_home = base.join("linux-home");
-        let macos_home = base.join("macos-home");
-        let local_app_data = base.join("local-app-data");
-
-        assert_eq!(
-            root("linux", &[("XDG_CACHE_HOME", &xdg_cache)]),
-            xdg_cache.join("cargo-ohos/ohos-llvm")
-        );
-        assert_eq!(
-            root("linux", &[("HOME", &linux_home)]),
-            linux_home.join(".cache/cargo-ohos/ohos-llvm")
-        );
-        assert_eq!(
-            root("macos", &[("HOME", &macos_home)]),
-            macos_home.join("Library/Caches/cargo-ohos/ohos-llvm")
-        );
-        assert_eq!(
-            root("windows", &[("LOCALAPPDATA", &local_app_data)]),
-            local_app_data.join("cargo-ohos/ohos-llvm")
-        );
-    }
-
-    #[test]
-    fn falls_back_to_the_project_cache_without_an_absolute_user_cache() {
-        let root = cache_root_with("linux", |name| match name {
-            "XDG_CACHE_HOME" => Some(OsString::from("relative-cache")),
-            "CARGO_TARGET_DIR" => Some(OsString::from("custom-target")),
-            _ => None,
-        });
-
-        assert_eq!(root, Path::new("custom-target/ohos-llvm"));
-    }
-
-    #[test]
     fn includes_captured_command_output_in_errors() {
         let message = with_command_output(
             "verification failed".to_owned(),
@@ -699,7 +433,7 @@ mod tests {
         }
         archive.into_inner().unwrap().finish().unwrap();
 
-        extract(&archive_path, &destination).unwrap();
+        download::extract_tar_gz(&archive_path, &destination).unwrap();
 
         assert_eq!(
             find_toolchain_root(&destination).unwrap(),
