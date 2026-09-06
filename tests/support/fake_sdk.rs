@@ -158,7 +158,7 @@ impl FakeSdk {
             );
         }
 
-        let native = native.canonicalize().expect("canonicalize the fake SDK");
+        let native = dunce::canonicalize(native).expect("canonicalize the fake SDK");
         Self { dir, native }
     }
 
@@ -228,9 +228,7 @@ impl FakePrebuilt {
             }
         }
 
-        let llvm = llvm
-            .canonicalize()
-            .expect("canonicalize the fake toolchain");
+        let llvm = dunce::canonicalize(llvm).expect("canonicalize the fake toolchain");
         Self { dir, llvm }
     }
 

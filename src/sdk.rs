@@ -103,7 +103,7 @@ impl Sdk {
     }
 
     fn load(native_root: &Path) -> Option<Self> {
-        let native_root = native_root.canonicalize().ok()?;
+        let native_root = dunce::canonicalize(native_root).ok()?;
         let llvm_root = native_root.join("llvm");
         let llvm_bin = llvm_root.join("bin");
         let sysroot = native_root.join("sysroot");
@@ -206,7 +206,7 @@ mod tests {
 
         let sdk = Sdk::from_candidate(&root.0).unwrap();
 
-        assert_eq!(sdk.native_root, native.canonicalize().unwrap());
+        assert_eq!(sdk.native_root, dunce::canonicalize(native).unwrap());
         assert_eq!(sdk.api_version, None);
         assert_eq!(sdk.version, None);
     }
