@@ -323,10 +323,13 @@ fn cargo_target_directory() -> Result<PathBuf, Error> {
 }
 
 fn posix(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    dunce::simplified(path).to_string_lossy().replace('\\', "/")
 }
 
 fn path_list(paths: impl IntoIterator<Item = PathBuf>) -> Result<String, Error> {
+    let paths = paths
+        .into_iter()
+        .map(|path| dunce::simplified(&path).to_path_buf());
     let value = std::env::join_paths(paths).map_err(|source| Error::JoinPaths { source })?;
     Ok(value.to_string_lossy().replace('\\', "/"))
 }

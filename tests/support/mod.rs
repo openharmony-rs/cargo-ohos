@@ -62,7 +62,7 @@ impl TempDir {
         std::fs::create_dir_all(&path).expect("could not create the temporary directory");
         // Canonicalized, because `cargo-ohos` reports canonicalized paths and the tests
         // rewrite those back to placeholders.
-        let path = path.canonicalize().expect("could not canonicalize");
+        let path = dunce::canonicalize(path).expect("could not canonicalize");
         Self { path }
     }
 

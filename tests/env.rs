@@ -26,7 +26,30 @@ fn normalized_env_json(target: &str, sdk: &FakeSdk, prebuilt: Option<&FakePrebui
         command = command.arg("--llvm").arg(prebuilt.llvm());
     }
     let run = command.run().success();
+    #[cfg(windows)]
+    assert_no_verbatim_paths(&run.json());
     normalize(&run.stdout, sdk, prebuilt, target_dir.path())
+}
+
+#[cfg(windows)]
+fn assert_no_verbatim_paths(value: &serde_json::Value) {
+    match value {
+        serde_json::Value::String(value) => assert!(
+            !value.contains(r"\\?\") && !value.contains("//?/"),
+            "verbatim Windows path was emitted: {value}"
+        ),
+        serde_json::Value::Array(values) => {
+            for value in values {
+                assert_no_verbatim_paths(value);
+            }
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values() {
+                assert_no_verbatim_paths(value);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn normalize(

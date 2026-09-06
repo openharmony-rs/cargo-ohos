@@ -14,6 +14,7 @@ exclude = ["tests"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+dunce = "1"
 flate2 = "1"
 fs4 = { version = "1", features = ["sync"] }
 indicatif = { version = "0.18.6", default-features = false }

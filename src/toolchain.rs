@@ -49,7 +49,7 @@ impl Toolchain {
     pub fn resolve(sdk: &Sdk, llvm: Option<&Path>) -> Result<Self, Error> {
         let root = match llvm {
             Some(root) => {
-                let root = root.canonicalize().map_err(|source| Error::Io {
+                let root = dunce::canonicalize(root).map_err(|source| Error::Io {
                     path: root.to_path_buf(),
                     source,
                 })?;
