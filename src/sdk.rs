@@ -78,10 +78,9 @@ impl Sdk {
         Err(Error::SdkNotFound { tried })
     }
 
-    /// Download and cache the newest matching OpenHarmony SDK release, returning
-    /// the `native` directory. The SDK is fetched from the `openharmony-rs/ohos-sdk`
-    /// GitHub mirror.
-    pub fn download(version: &str, components: &[String]) -> Result<PathBuf, String> {
+    /// Download and cache the newest matching OpenHarmony SDK release. The SDK is
+    /// fetched from the `openharmony-rs/ohos-sdk` GitHub mirror.
+    pub fn download(version: &str, components: &[String]) -> Result<Self, String> {
         if !download::is_safe_component(version) {
             return Err(format!(
                 "invalid OpenHarmony SDK version `{version}`; expected a version such as `6.0.0.1`"
@@ -94,7 +93,13 @@ impl Sdk {
             std::env::consts::OS,
             std::env::consts::ARCH,
         )?;
-        install(&selection, components)
+        let installed = install(&selection, components)?;
+        Self::from_candidate(&installed).ok_or_else(|| {
+            format!(
+                "the OpenHarmony SDK installed at {} has no usable `native` component",
+                installed.display()
+            )
+        })
     }
 
     // This is a very liberal check. The different environment variables we consider point to
@@ -260,13 +265,13 @@ fn install(selection: &Selection, components: &[String]) -> Result<PathBuf, Stri
 
     let install_base = root.join(&selection.version).join(selection.os_dir_name);
     let marker = selection_marker(selection, components);
-    if let Some(native) = existing_native(&install_base, &marker) {
+    if let Some(installed) = existing_install(&install_base, &marker) {
         eprintln!(
             "note: using cached OpenHarmony SDK {} from {}",
             selection.version,
-            native.display()
+            installed.display()
         );
-        return Ok(native);
+        return Ok(installed);
     }
 
     // Named after what the lock covers, so that the leftovers of an interrupted
@@ -308,7 +313,7 @@ fn install(selection: &Selection, components: &[String]) -> Result<PathBuf, Stri
         std::fs::write(install_base.join(download::COMPLETE_MARKER), &marker)
             .map_err(|e| format!("could not mark {} complete: {e}", install_base.display()))?;
 
-        Ok(final_version_dir.join("native"))
+        Ok(final_version_dir)
     })();
 
     let _ = std::fs::remove_file(&archive_path);
@@ -316,7 +321,8 @@ fn install(selection: &Selection, components: &[String]) -> Result<PathBuf, Stri
     result
 }
 
-fn existing_native(install_base: &Path, marker: &str) -> Option<PathBuf> {
+/// The API level directory of a completed install of exactly `marker`.
+fn existing_install(install_base: &Path, marker: &str) -> Option<PathBuf> {
     if std::fs::read_to_string(install_base.join(download::COMPLETE_MARKER))
         .ok()
         .as_deref()
@@ -324,13 +330,11 @@ fn existing_native(install_base: &Path, marker: &str) -> Option<PathBuf> {
     {
         return None;
     }
-    for entry in std::fs::read_dir(install_base).ok()? {
-        let native = entry.ok()?.path().join("native");
-        if native.is_dir() {
-            return Some(native);
-        }
-    }
-    None
+    std::fs::read_dir(install_base)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.is_dir())
 }
 
 fn selection_marker(selection: &Selection, components: &[String]) -> String {

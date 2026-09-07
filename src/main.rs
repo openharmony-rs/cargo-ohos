@@ -340,16 +340,21 @@ fn run_init(command: InitCmd) -> Result<(), String> {
             version,
             components,
         } => {
-            let native = sdk::Sdk::download(&version, &components)?;
-            print_sdk_instructions(&native);
+            let sdk = sdk::Sdk::download(&version, &components)?;
+            print_sdk_instructions(&sdk);
             Ok(())
         }
     }
 }
 
-fn print_sdk_instructions(native: &Path) {
-    let native = native.to_string_lossy().replace('\\', "/");
-    println!("OpenHarmony SDK installed at:");
+fn print_sdk_instructions(sdk: &sdk::Sdk) {
+    let native = sdk.native_root.to_string_lossy().replace('\\', "/");
+    match (&sdk.version, sdk.api_version) {
+        (Some(version), Some(api)) => {
+            println!("OpenHarmony SDK {version} (API {api}) installed at:")
+        }
+        _ => println!("OpenHarmony SDK installed at:"),
+    }
     println!("  {native}");
     println!();
     println!("Persist the location so cargo-ohos can find it, e.g. add to your shell profile:");
