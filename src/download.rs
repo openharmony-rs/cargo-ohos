@@ -49,7 +49,7 @@ pub fn releases(url: &str, subdir: &str) -> Result<Vec<Release>, String> {
         }
     }
 
-    match fetch_release_json(url) {
+    match fetch_string(url) {
         Ok(json) => {
             let releases = parse_releases(&json, url)?;
             std::fs::write(&cache, json)
@@ -69,14 +69,15 @@ pub fn releases(url: &str, subdir: &str) -> Result<Vec<Release>, String> {
     }
 }
 
-fn fetch_release_json(url: &str) -> Result<String, String> {
+/// Fetch a small text resource - release metadata, a `.sha256` file - into memory.
+pub fn fetch_string(url: &str) -> Result<String, String> {
     let response = request(url)?;
     let (_, body) = response.into_parts();
-    let mut json = String::new();
+    let mut text = String::new();
     body.into_reader()
-        .read_to_string(&mut json)
+        .read_to_string(&mut text)
         .map_err(|e| format!("could not read response from {url}: {e}"))?;
-    Ok(json)
+    Ok(text)
 }
 
 fn read_cached_releases(path: &Path) -> Result<Vec<Release>, String> {
@@ -148,14 +149,28 @@ pub fn cache_root_with(subdir: &str, os: &str, env: impl Fn(&str) -> Option<OsSt
         })
 }
 
-pub fn download(asset: &Asset, destination: &Path) -> Result<(), String> {
-    eprintln!("note: downloading asset `{}`", asset.name);
-    let response = request(&asset.browser_download_url)?;
-    let (_, body) = response.into_parts();
-    let mut reader = body.into_reader();
+/// The asset's SHA-256 digest, if GitHub reports a well-formed one. Releases
+/// created before GitHub added the field do not have it.
+pub fn sha256_digest(asset: &Asset) -> Option<String> {
+    asset
+        .digest
+        .as_deref()
+        .and_then(|digest| digest.strip_prefix("sha256:"))
+        .filter(|digest| digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase)
+}
+
+/// Download `assets` in order into a single file at `destination`, returning the
+/// SHA-256 of everything written. Archives too large for a GitHub release are
+/// published as parts that concatenate back into the original, so this is also
+/// how they are reassembled - without ever holding a second copy on disk.
+pub fn download_to_file(assets: &[Asset], destination: &Path) -> Result<String, String> {
+    // With a single asset the returned digest is that asset's own, and the caller
+    // checks it, so only split archives need to verify their parts here.
+    let verify_parts = assets.len() > 1;
     let mut file = File::create(destination)
         .map_err(|e| format!("could not create {}: {e}", destination.display()))?;
-    let progress = ProgressBar::new(asset.size);
+    let progress = ProgressBar::new(assets.iter().map(|asset| asset.size).sum());
     progress.set_style(
         ProgressStyle::with_template(
             "  Downloading [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, {eta})",
@@ -163,45 +178,55 @@ pub fn download(asset: &Asset, destination: &Path) -> Result<(), String> {
         .expect("valid download progress template")
         .progress_chars("=> "),
     );
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut total = Sha256::new();
     let transfer = (|| {
-        loop {
-            let count = reader
-                .read(&mut buffer)
-                .map_err(|e| format!("could not download `{}`: {e}", asset.name))?;
-            if count == 0 {
-                break;
+        for asset in assets {
+            progress.suspend(|| eprintln!("note: downloading asset `{}`", asset.name));
+            let expected = verify_parts.then(|| sha256_digest(asset)).flatten();
+            let mut part = expected.is_some().then(Sha256::new);
+            let response = request(&asset.browser_download_url)?;
+            let (_, body) = response.into_parts();
+            let mut reader = body.into_reader();
+            let mut buffer = [0_u8; 64 * 1024];
+            loop {
+                let count = reader
+                    .read(&mut buffer)
+                    .map_err(|e| format!("could not download `{}`: {e}", asset.name))?;
+                if count == 0 {
+                    break;
+                }
+                file.write_all(&buffer[..count])
+                    .map_err(|e| format!("could not write {}: {e}", destination.display()))?;
+                total.update(&buffer[..count]);
+                if let Some(part) = part.as_mut() {
+                    part.update(&buffer[..count]);
+                }
+                progress.inc(count as u64);
             }
-            file.write_all(&buffer[..count])
-                .map_err(|e| format!("could not write {}: {e}", destination.display()))?;
-            progress.inc(count as u64);
+            if let (Some(part), Some(expected)) = (part, expected) {
+                let actual = hex(part);
+                if actual != expected {
+                    return Err(format!(
+                        "SHA-256 mismatch for `{}`: expected {expected}, got {actual}",
+                        asset.name
+                    ));
+                }
+            }
         }
         file.sync_all()
             .map_err(|e| format!("could not finish {}: {e}", destination.display()))
     })();
     progress.finish_and_clear();
-    transfer
+    transfer?;
+    Ok(hex(total))
 }
 
-pub fn sha256_file(path: &Path) -> Result<String, String> {
-    let mut file =
-        File::open(path).map_err(|e| format!("could not open {}: {e}", path.display()))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|e| format!("could not read {}: {e}", path.display()))?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
-    Ok(hasher
+fn hex(hasher: Sha256) -> String {
+    hasher
         .finalize()
         .iter()
         .map(|byte| format!("{byte:02x}"))
-        .collect())
+        .collect()
 }
 
 pub fn extract_tar_gz(archive_path: &Path, destination: &Path) -> Result<(), String> {

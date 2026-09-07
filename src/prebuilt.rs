@@ -79,13 +79,8 @@ fn select(
                 release.tag_name, host.id
             )
         })?;
-    let sha256 = asset
-        .digest
-        .as_deref()
-        .and_then(|digest| digest.strip_prefix("sha256:"))
-        .filter(|digest| digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()))
-        .ok_or_else(|| format!("asset `{}` has no valid SHA-256 digest", asset.name))?
-        .to_ascii_lowercase();
+    let sha256 = download::sha256_digest(&asset)
+        .ok_or_else(|| format!("asset `{}` has no valid SHA-256 digest", asset.name))?;
     Ok(Selection {
         version,
         host,
@@ -192,8 +187,7 @@ fn download_and_verify(
     expected: &str,
     destination: &Path,
 ) -> Result<(), String> {
-    download::download(asset, destination)?;
-    let actual = download::sha256_file(destination)?;
+    let actual = download::download_to_file(std::slice::from_ref(asset), destination)?;
     if actual != expected {
         return Err(format!(
             "SHA-256 mismatch for `{}`: expected {expected}, got {actual}",

@@ -340,23 +340,13 @@ fn selection_marker(selection: &Selection) -> String {
     marker
 }
 
-/// Download the archive (concatenating any split parts), verify it against the
-/// mirror's `.sha256` checksum, and write the result to `archive_path`.
+/// Download the archive (streaming any split parts into one file), verify it
+/// against the mirror's `.sha256` checksum, and write the result to `archive_path`.
 fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Result<(), String> {
-    let root = download::cache_root(SDK_CACHE_SUBDIR);
-
-    // Download the tiny checksum file first to learn the expected digest. The
+    // Fetch the tiny checksum file first to learn the expected digest. The
     // `openharmony-rs/ohos-sdk` mirror always publishes this file, unlike the
     // GitHub `digest` field which is missing for older releases.
-    let sha256_path = root.join(format!(
-        ".download-sdk-sha256-{}-{}",
-        selection.os_dir_name,
-        std::process::id()
-    ));
-    download::download(&selection.sha256_asset, &sha256_path)?;
-    let expected = std::fs::read_to_string(&sha256_path)
-        .map_err(|e| format!("could not read {}: {e}", sha256_path.display()))?;
-    let _ = std::fs::remove_file(&sha256_path);
+    let expected = download::fetch_string(&selection.sha256_asset.browser_download_url)?;
     let expected = expected
         .split_whitespace()
         .next()
@@ -369,40 +359,11 @@ fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Resul
         ));
     }
 
-    let mut part_paths = Vec::new();
-    for (index, part) in selection.parts.iter().enumerate() {
-        let part_path = root.join(format!(
-            ".download-sdk-{}-{}-part{index}",
-            selection.os_dir_name,
-            std::process::id()
-        ));
-        download::download(part, &part_path)?;
-        part_paths.push(part_path);
-    }
-
-    let result = concat_parts(&part_paths, archive_path);
-    for part_path in part_paths {
-        let _ = std::fs::remove_file(part_path);
-    }
-    result?;
-
-    let actual = download::sha256_file(archive_path)?;
+    let actual = download::download_to_file(&selection.parts, archive_path)?;
     if actual != expected {
         return Err(format!(
             "SHA-256 mismatch for the OpenHarmony SDK archive: expected {expected}, got {actual}"
         ));
-    }
-    Ok(())
-}
-
-fn concat_parts(part_paths: &[PathBuf], archive_path: &Path) -> Result<(), String> {
-    let mut output = std::fs::File::create(archive_path)
-        .map_err(|e| format!("could not create {}: {e}", archive_path.display()))?;
-    for part_path in part_paths {
-        let mut input = std::fs::File::open(part_path)
-            .map_err(|e| format!("could not open {}: {e}", part_path.display()))?;
-        std::io::copy(&mut input, &mut output)
-            .map_err(|e| format!("could not concatenate {}: {e}", part_path.display()))?;
     }
     Ok(())
 }
