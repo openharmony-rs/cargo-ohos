@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use fs4::FileExt;
@@ -285,8 +286,7 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
         fetch_and_verify_archive(selection, &archive_path)?;
         std::fs::create_dir(&staging)
             .map_err(|e| format!("could not create {}: {e}", staging.display()))?;
-        download::extract_tar_gz(&archive_path, &staging)?;
-        let components_dir = find_components_dir(&staging, selection.os_dir_name)?;
+        let components_dir = extract_host_components(&archive_path, &staging, selection)?;
         let api_version = extract_components(&components_dir)?;
 
         std::fs::create_dir_all(&install_base)
@@ -368,26 +368,47 @@ fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Resul
     Ok(())
 }
 
-fn find_components_dir(staging: &Path, os_dir_name: &str) -> Result<PathBuf, String> {
-    // Prefer a directory named after the host OS that contains component archives.
-    if let Some(dir) = find_dir_with_zips(staging, Some(os_dir_name)) {
-        return Ok(dir);
-    }
-    // Fall back to any directory containing component archives.
-    find_dir_with_zips(staging, None)
-        .ok_or_else(|| "downloaded archive does not contain OpenHarmony SDK components".to_owned())
+/// Unpack only the component archives of the host we are installing for. The
+/// `windows_linux` archive carries both hosts, so half of it - close to a
+/// gigabyte - is of no use here.
+fn extract_host_components(
+    archive_path: &Path,
+    staging: &Path,
+    selection: &Selection,
+) -> Result<PathBuf, String> {
+    let mut hosts = BTreeSet::new();
+    download::extract_tar_gz_filtered(archive_path, staging, |path| {
+        component_host(path).is_some_and(|host| {
+            hosts.insert(host.to_owned());
+            host == selection.os_dir_name
+        })
+    })?;
+
+    find_dir_with_zips(staging, selection.os_dir_name).ok_or_else(|| {
+        format!(
+            "the archive of release `v{}` has no OpenHarmony SDK components for host `{}` (it has: {})",
+            selection.version,
+            selection.os_dir_name,
+            hosts.into_iter().collect::<Vec<_>>().join(", ")
+        )
+    })
 }
 
-fn find_dir_with_zips(root: &Path, name: Option<&str>) -> Option<PathBuf> {
+/// The directory a component archive sits in, for example `linux` for
+/// `ohos-sdk/linux/native-linux-x64-6.0.0.48-Release.zip`. Its depth in the
+/// archive differs between releases and hosts, its name does not.
+fn component_host(path: &Path) -> Option<&str> {
+    path.extension().filter(|extension| *extension == "zip")?;
+    path.parent()?.file_name()?.to_str()
+}
+
+fn find_dir_with_zips(root: &Path, name: &str) -> Option<PathBuf> {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
         if !dir.is_dir() {
             continue;
         }
-        let matches_name = name
-            .map(|name| dir.file_name().is_some_and(|file_name| file_name == name))
-            .unwrap_or(true);
-        if matches_name && has_zip(&dir) {
+        if dir.file_name().is_some_and(|file_name| file_name == name) && has_zip(&dir) {
             return Some(dir);
         }
         if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -604,6 +625,26 @@ mod tests {
             Some("ohos-sdk-mac-public.tar.gz")
         );
         assert_eq!(host_archive_name("freebsd", "x86_64"), None);
+    }
+
+    #[test]
+    fn recognizes_component_archives_at_any_depth() {
+        fn host(path: &str) -> Option<&str> {
+            component_host(Path::new(path))
+        }
+        assert_eq!(
+            host("ohos-sdk/linux/native-linux-x64-6.0.0.48-Release.zip"),
+            Some("linux")
+        );
+        assert_eq!(
+            host("linux/native-linux-x64-5.0.0.71-Release.zip"),
+            Some("linux")
+        );
+        assert_eq!(
+            host("sdk/packages/ohos-sdk/darwin/ets-darwin-arm64-6.0.0.48-Release.zip"),
+            Some("darwin")
+        );
+        assert_eq!(host("manifest_tag.xml"), None);
     }
 
     #[test]

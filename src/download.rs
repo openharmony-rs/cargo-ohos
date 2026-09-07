@@ -240,6 +240,38 @@ pub fn extract_tar_gz(archive_path: &Path, destination: &Path) -> Result<(), Str
         .map_err(|e| format!("could not extract {}: {e}", archive_path.display()))
 }
 
+/// Extract the files of a `.tar.gz` for which `keep` returns true, leaving the
+/// rest of the archive on the wire. Directory entries are skipped; the parents
+/// of the extracted files are created as needed.
+pub fn extract_tar_gz_filtered(
+    archive_path: &Path,
+    destination: &Path,
+    mut keep: impl FnMut(&Path) -> bool,
+) -> Result<(), String> {
+    eprintln!("note: extracting {}", archive_path.display());
+    let fail = |e: std::io::Error| format!("could not extract {}: {e}", archive_path.display());
+    let file = File::open(archive_path)
+        .map_err(|e| format!("could not open {}: {e}", archive_path.display()))?;
+    let decoder = GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+    // As in `Archive::unpack`: canonicalizing lifts the 260 character path limit
+    // on Windows.
+    let destination = destination
+        .canonicalize()
+        .unwrap_or_else(|_| destination.to_path_buf());
+    for entry in archive.entries().map_err(fail)? {
+        let mut entry = entry.map_err(fail)?;
+        if entry.header().entry_type().is_dir() {
+            continue;
+        }
+        let path = entry.path().map_err(fail)?.into_owned();
+        if keep(&path) {
+            entry.unpack_in(&destination).map_err(fail)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn remove_dir_if_exists(path: &Path) -> Result<(), String> {
     match std::fs::remove_dir_all(path) {
         Ok(()) => Ok(()),
