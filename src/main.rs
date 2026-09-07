@@ -56,6 +56,15 @@ enum InitCmd {
         /// OpenHarmony SDK version (or prefix), e.g. `6.0.0.1`.
         #[arg(long, value_name = "VERSION")]
         version: String,
+        /// SDK components to install, comma separated. `native` holds the clang
+        /// toolchain and the sysroot, `toolchains` holds `hdc`.
+        #[arg(
+            long,
+            value_name = "COMPONENTS",
+            value_delimiter = ',',
+            default_value = "native,toolchains"
+        )]
+        components: Vec<String>,
     },
 }
 
@@ -327,8 +336,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
 
 fn run_init(command: InitCmd) -> Result<(), String> {
     match command {
-        InitCmd::Sdk { version } => {
-            let native = sdk::Sdk::download(&version)?;
+        InitCmd::Sdk {
+            version,
+            components,
+        } => {
+            let native = sdk::Sdk::download(&version, &components)?;
             print_sdk_instructions(&native);
             Ok(())
         }

@@ -22,8 +22,10 @@ The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Stu
 cargo ohos init sdk --version=6.0.0.1
 ```
 
-`--version` takes a full or prefix SDK version (`6.0` selects the newest `6.0.x`), and selects
-the newest matching release. The archive is verified against the mirror's SHA-256 checksum.
+`--version` takes a full or prefix SDK version (`6.0.0` selects the newest `6.0.0.x`); an exact
+version always wins over a longer one. The archive is verified against the mirror's SHA-256
+checksum. By default only the `native` (clang and sysroot) and `toolchains` (`hdc`) components
+are installed; pass `--components` to change that, e.g. `--components native,toolchains,previewer`.
 The command prints how to persist the `OHOS_SDK_NATIVE` environment variable, so subsequent
 `cargo ohos` invocations find the SDK automatically. The downloaded SDK is cached under
 `~/.cache/cargo-ohos/ohos-sdk` on Linux, `~/Library/Caches/cargo-ohos/ohos-sdk` on macOS, and

@@ -81,7 +81,7 @@ impl Sdk {
     /// Download and cache the newest matching OpenHarmony SDK release, returning
     /// the `native` directory. The SDK is fetched from the `openharmony-rs/ohos-sdk`
     /// GitHub mirror.
-    pub fn download(version: &str) -> Result<PathBuf, String> {
+    pub fn download(version: &str, components: &[String]) -> Result<PathBuf, String> {
         if !download::is_safe_component(version) {
             return Err(format!(
                 "invalid OpenHarmony SDK version `{version}`; expected a version such as `6.0.0.1`"
@@ -94,7 +94,7 @@ impl Sdk {
             std::env::consts::OS,
             std::env::consts::ARCH,
         )?;
-        install(&selection)
+        install(&selection, components)
     }
 
     // This is a very liberal check. The different environment variables we consider point to
@@ -246,7 +246,7 @@ fn is_archive_part(name: &str, archive_name: &str) -> bool {
             .is_some_and(|suffix| suffix.starts_with('.') && suffix != ".sha256")
 }
 
-fn install(selection: &Selection) -> Result<PathBuf, String> {
+fn install(selection: &Selection, components: &[String]) -> Result<PathBuf, String> {
     let root = download::cache_root(SDK_CACHE_SUBDIR);
     std::fs::create_dir_all(&root)
         .map_err(|e| format!("could not create {}: {e}", root.display()))?;
@@ -259,7 +259,7 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
     FileExt::lock(&lock).map_err(|e| format!("could not lock {}: {e}", lock_path.display()))?;
 
     let install_base = root.join(&selection.version).join(selection.os_dir_name);
-    let marker = selection_marker(selection);
+    let marker = selection_marker(selection, components);
     if let Some(native) = existing_native(&install_base, &marker) {
         eprintln!(
             "note: using cached OpenHarmony SDK {} from {}",
@@ -286,7 +286,8 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
         fetch_and_verify_archive(selection, &archive_path)?;
         std::fs::create_dir(&staging)
             .map_err(|e| format!("could not create {}: {e}", staging.display()))?;
-        let components_dir = extract_host_components(&archive_path, &staging, selection)?;
+        let components_dir =
+            extract_host_components(&archive_path, &staging, selection, components)?;
         let api_version = extract_components(&components_dir)?;
 
         std::fs::create_dir_all(&install_base)
@@ -331,10 +332,14 @@ fn existing_native(install_base: &Path, marker: &str) -> Option<PathBuf> {
     None
 }
 
-fn selection_marker(selection: &Selection) -> String {
+fn selection_marker(selection: &Selection, components: &[String]) -> String {
     let mut marker = format!("{}\n{}\n", selection.version, selection.archive_name);
     for part in &selection.parts {
         marker.push_str(&part.name);
+        marker.push('\n');
+    }
+    for component in components {
+        marker.push_str(component);
         marker.push('\n');
     }
     marker
@@ -375,23 +380,62 @@ fn extract_host_components(
     archive_path: &Path,
     staging: &Path,
     selection: &Selection,
+    components: &[String],
 ) -> Result<PathBuf, String> {
     let mut hosts = BTreeSet::new();
+    let mut available = BTreeSet::new();
     download::extract_tar_gz_filtered(archive_path, staging, |path| {
-        component_host(path).is_some_and(|host| {
-            hosts.insert(host.to_owned());
-            host == selection.os_dir_name
-        })
+        let Some(host) = component_host(path) else {
+            return false;
+        };
+        hosts.insert(host.to_owned());
+        if host != selection.os_dir_name {
+            return false;
+        }
+        let Some(name) = component_name(path) else {
+            return false;
+        };
+        available.insert(name.to_owned());
+        components.iter().any(|component| component == name)
     })?;
 
-    find_dir_with_zips(staging, selection.os_dir_name).ok_or_else(|| {
-        format!(
+    if !hosts.contains(selection.os_dir_name) {
+        return Err(format!(
             "the archive of release `v{}` has no OpenHarmony SDK components for host `{}` (it has: {})",
             selection.version,
             selection.os_dir_name,
-            hosts.into_iter().collect::<Vec<_>>().join(", ")
+            join(&hosts)
+        ));
+    }
+    let missing: Vec<&str> = components
+        .iter()
+        .map(String::as_str)
+        .filter(|component| !available.contains(*component))
+        .collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "release `v{}` has no SDK component `{}` for host `{}` (it has: {})",
+            selection.version,
+            missing.join("`, `"),
+            selection.os_dir_name,
+            join(&available)
+        ));
+    }
+
+    find_dir_with_zips(staging, selection.os_dir_name).ok_or_else(|| {
+        format!(
+            "could not find the extracted components of `v{}`",
+            selection.version
         )
     })
+}
+
+fn join(names: &BTreeSet<String>) -> String {
+    names
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The directory a component archive sits in, for example `linux` for
@@ -400,6 +444,12 @@ fn extract_host_components(
 fn component_host(path: &Path) -> Option<&str> {
     path.extension().filter(|extension| *extension == "zip")?;
     path.parent()?.file_name()?.to_str()
+}
+
+/// The component an archive holds, for example `native` for
+/// `native-linux-x64-6.0.0.48-Release.zip`.
+fn component_name(path: &Path) -> Option<&str> {
+    path.file_name()?.to_str()?.split('-').next()
 }
 
 fn find_dir_with_zips(root: &Path, name: &str) -> Option<PathBuf> {
