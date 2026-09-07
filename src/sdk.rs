@@ -269,15 +269,15 @@ fn install(selection: &Selection, components: &[String]) -> Result<PathBuf, Stri
         return Ok(native);
     }
 
+    // Named after what the lock covers, so that the leftovers of an interrupted
+    // run are reclaimed by the next one instead of lingering as dead gigabytes.
     let archive_path = root.join(format!(
         ".download-sdk-{}-{}.tar.gz",
-        selection.os_dir_name,
-        std::process::id()
+        selection.version, selection.os_dir_name
     ));
     let staging = root.join(format!(
         ".extract-sdk-{}-{}",
-        selection.os_dir_name,
-        std::process::id()
+        selection.version, selection.os_dir_name
     ));
     download::remove_dir_if_exists(&staging)?;
     download::remove_file_if_exists(&archive_path)?;
@@ -288,6 +288,7 @@ fn install(selection: &Selection, components: &[String]) -> Result<PathBuf, Stri
             .map_err(|e| format!("could not create {}: {e}", staging.display()))?;
         let components_dir =
             extract_host_components(&archive_path, &staging, selection, components)?;
+        download::remove_file_if_exists(&archive_path)?;
         let api_version = extract_components(&components_dir)?;
 
         std::fs::create_dir_all(&install_base)
