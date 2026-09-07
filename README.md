@@ -16,7 +16,7 @@ The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Stu
 ### Downloading the SDK
 
 `cargo-ohos` can download and cache the SDK from the
-[openharmony-rs/ohos-sdk](https://github.com/openharmony-rs/ohos-sdk) mirror :
+[openharmony-rs/ohos-sdk](https://github.com/openharmony-rs/ohos-sdk) mirror:
 
 ```sh
 cargo ohos init sdk --version=6.0.0.1

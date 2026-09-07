@@ -259,8 +259,8 @@ fn select(
     }
     if parts.is_empty() {
         return Err(format!(
-            "release `{}` has no SDK archive for host {}",
-            release.tag_name, os
+            "release `{}` has no SDK archive for host {os}-{arch}",
+            release.tag_name
         ));
     }
     let sha256_asset = sha256_asset.ok_or_else(|| {
