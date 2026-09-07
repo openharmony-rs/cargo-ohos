@@ -348,7 +348,10 @@ fn run_init(command: InitCmd) -> Result<(), String> {
 }
 
 fn print_sdk_instructions(sdk: &sdk::Sdk) {
-    let native = sdk.native_root.to_string_lossy().replace('\\', "/");
+    let native = sdk.native_root.to_string_lossy();
+    // The SDK is canonicalized, which on Windows yields a `\\?\` extended-length
+    // path that most shells and build tools do not accept.
+    let native = native.strip_prefix(r"\\?\").unwrap_or(&native);
     match (&sdk.version, sdk.api_version) {
         (Some(version), Some(api)) => {
             println!("OpenHarmony SDK {version} (API {api}) installed at:")
@@ -357,8 +360,18 @@ fn print_sdk_instructions(sdk: &sdk::Sdk) {
     }
     println!("  {native}");
     println!();
-    println!("Persist the location so cargo-ohos can find it, e.g. add to your shell profile:");
-    println!("  export OHOS_SDK_NATIVE=\"{native}\"");
+    println!("Persist the location so cargo-ohos can find it:");
+    if cfg!(windows) {
+        println!(
+            "  PowerShell:  [Environment]::SetEnvironmentVariable('OHOS_SDK_NATIVE', '{native}', 'User')"
+        );
+        println!("  cmd.exe:     setx OHOS_SDK_NATIVE \"{native}\"");
+        println!();
+        println!("For the current PowerShell session only:");
+        println!("  $env:OHOS_SDK_NATIVE = '{native}'");
+    } else {
+        println!("  add to your shell profile: export OHOS_SDK_NATIVE=\"{native}\"");
+    }
     println!();
     println!("Or pass it on each invocation with:");
     println!("  cargo ohos build --sdk \"{native}\"");
