@@ -312,6 +312,15 @@ mod tests {
     }
 
     #[test]
+    fn version_prefixes_match_at_component_boundaries() {
+        assert!(version_matches("19", "19.1.4-79830f"));
+        assert!(version_matches("19.1.4", "19.1.4-79830f"));
+        assert!(version_matches("19.1.4-79830f", "19.1.4-79830f"));
+        assert!(!version_matches("19", "190.0.0"));
+        assert!(!version_matches("19.1.5", "19.1.4-79830f"));
+    }
+
+    #[test]
     fn uses_shared_platform_cache_directories() {
         let root = |subdir, os, variables: &[(&str, &Path)]| {
             cache_root_with(subdir, os, |name| {
@@ -343,5 +352,16 @@ mod tests {
             root("ohos-sdk", "windows", &[("LOCALAPPDATA", &local_app_data)]),
             local_app_data.join("cargo-ohos/ohos-sdk")
         );
+    }
+
+    #[test]
+    fn falls_back_to_the_project_cache_without_an_absolute_user_cache() {
+        let root = cache_root_with("ohos-llvm", "linux", |name| match name {
+            "XDG_CACHE_HOME" => Some(OsString::from("relative-cache")),
+            "CARGO_TARGET_DIR" => Some(OsString::from("custom-target")),
+            _ => None,
+        });
+
+        assert_eq!(root, Path::new("custom-target/ohos-llvm"));
     }
 }
