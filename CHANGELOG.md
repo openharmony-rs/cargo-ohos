@@ -3,7 +3,9 @@
 ## 0.3.3
 
 - Add `cargo ohos init sdk --version <VERSION>` to download and cache the OpenHarmony SDK from
-  the `openharmony-rs/ohos-sdk` mirror. The archive is verified against the mirror's SHA-256 checksum.
+  the `openharmony-rs/ohos-sdk` mirror. The archive is checked against the SHA-256 the mirror
+  publishes next to it; the SDK archives carry no provenance attestation, so unlike
+  `--download-prebuilt` this is an integrity check only.
   `--components` selects which SDK components to install and defaults to `native,toolchains`.
   The SDK can also be selected by OpenHarmony API level with `--api`, and `--list` prints the
   versions the mirror publishes.

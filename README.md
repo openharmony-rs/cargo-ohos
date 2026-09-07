@@ -29,7 +29,10 @@ version always wins over a longer one. `--api` takes an OpenHarmony API level in
 the newest SDK providing it. `--list` prints the versions the mirror publishes with their API
 level.
 
-The archive is verified against the mirror's SHA-256 checksum. By default only the `native`
+The archive is checked against the SHA-256 the mirror publishes next to it, which catches a
+corrupted or truncated download. The SDK archives carry no build provenance attestation - unlike
+the prebuilt LLVM toolchains, whose signature `--download-prebuilt` verifies - so this is an
+integrity check and not proof of origin. By default only the `native`
 (clang and sysroot) and `toolchains` (`hdc`) components are installed; pass `--components` to
 change that, e.g. `--components native,toolchains,previewer`.
 
