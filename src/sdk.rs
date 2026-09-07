@@ -180,21 +180,8 @@ fn select(
     let archive_name = host_archive_name(os, arch).ok_or_else(|| {
         format!("OpenHarmony SDK archives are not available for host {os}-{arch}")
     })?;
-    let release = releases
-        .into_iter()
-        .find(|release| {
-            !release.draft
-                && release
-                    .tag_name
-                    .strip_prefix('v')
-                    .is_some_and(|version| download::version_matches(requested, version))
-        })
+    let (release, version) = download::select_release(releases, "v", requested)
         .ok_or_else(|| format!("no OpenHarmony SDK release matches version `{requested}`"))?;
-    let version = release
-        .tag_name
-        .strip_prefix('v')
-        .expect("selected release has the v prefix")
-        .to_owned();
     if !download::is_safe_component(&version) {
         return Err(format!(
             "release `{}` has an unsafe version name",

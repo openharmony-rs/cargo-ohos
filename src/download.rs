@@ -231,6 +231,33 @@ pub fn remove_file_if_exists(path: &Path) -> Result<(), String> {
     }
 }
 
+/// The newest non-draft release whose version - the tag with `tag_prefix` removed -
+/// matches `requested`, together with that version. An exact match wins over a
+/// prefix match regardless of order, so a release like `v6.0` stays reachable next
+/// to the newer `v6.0.0.1`.
+pub fn select_release(
+    releases: Vec<Release>,
+    tag_prefix: &str,
+    requested: &str,
+) -> Option<(Release, String)> {
+    let mut prefix_match = None;
+    for release in releases {
+        if release.draft {
+            continue;
+        }
+        let Some(version) = release.tag_name.strip_prefix(tag_prefix).map(str::to_owned) else {
+            continue;
+        };
+        if version == requested {
+            return Some((release, version));
+        }
+        if prefix_match.is_none() && version_matches(requested, &version) {
+            prefix_match = Some((release, version));
+        }
+    }
+    prefix_match
+}
+
 /// Whether `candidate` is equal to `requested` or has `requested` as a
 /// component-prefix (the following character is `.` or `-`).
 pub fn version_matches(requested: &str, candidate: &str) -> bool {
@@ -251,6 +278,38 @@ pub fn is_safe_component(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn release(tag: &str) -> Release {
+        Release {
+            tag_name: tag.to_owned(),
+            draft: false,
+            assets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn prefers_an_exact_version_over_a_newer_prefix_match() {
+        let releases = || vec![release("v6.1"), release("v6.0.0.1"), release("v6.0")];
+
+        let (release, version) = select_release(releases(), "v", "6.0").unwrap();
+        assert_eq!(release.tag_name, "v6.0");
+        assert_eq!(version, "6.0");
+
+        let (release, _) = select_release(releases(), "v", "6.0.0").unwrap();
+        assert_eq!(release.tag_name, "v6.0.0.1");
+
+        assert!(select_release(releases(), "v", "6.2").is_none());
+    }
+
+    #[test]
+    fn skips_drafts_and_foreign_tags() {
+        let mut draft = release("v6.1");
+        draft.draft = true;
+        let releases = vec![draft, release("toolchain-6.1"), release("v6.1.0")];
+
+        let (release, _) = select_release(releases, "v", "6.1").unwrap();
+        assert_eq!(release.tag_name, "v6.1.0");
+    }
 
     #[test]
     fn uses_shared_platform_cache_directories() {

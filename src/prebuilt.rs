@@ -59,23 +59,10 @@ fn select(
     let host = host(os, arch).ok_or_else(|| {
         format!("prebuilt OpenHarmony LLVM toolchains are not available for host {os}-{arch}")
     })?;
-    let release = releases
-        .into_iter()
-        .find(|release| {
-            !release.draft
-                && release
-                    .tag_name
-                    .strip_prefix("toolchain-")
-                    .is_some_and(|version| download::version_matches(requested, version))
-        })
+    let (release, version) = download::select_release(releases, "toolchain-", requested)
         .ok_or_else(|| {
             format!("no prebuilt OpenHarmony LLVM release matches version `{requested}`")
         })?;
-    let version = release
-        .tag_name
-        .strip_prefix("toolchain-")
-        .expect("selected release has the toolchain prefix")
-        .to_owned();
     if !download::is_safe_component(&version) {
         return Err(format!(
             "release `{}` has an unsafe version name",
