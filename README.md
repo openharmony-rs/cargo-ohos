@@ -20,12 +20,19 @@ The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Stu
 
 ```sh
 cargo ohos init sdk --version=6.0.0.1
+cargo ohos init sdk --api=20
+cargo ohos init sdk --list
 ```
 
 `--version` takes a full or prefix SDK version (`6.0.0` selects the newest `6.0.0.x`); an exact
-version always wins over a longer one. The archive is verified against the mirror's SHA-256
-checksum. By default only the `native` (clang and sysroot) and `toolchains` (`hdc`) components
-are installed; pass `--components` to change that, e.g. `--components native,toolchains,previewer`.
+version always wins over a longer one. `--api` takes an OpenHarmony API level instead and installs
+the newest SDK providing it. `--list` prints the versions the mirror publishes with their API
+level.
+
+The archive is verified against the mirror's SHA-256 checksum. By default only the `native`
+(clang and sysroot) and `toolchains` (`hdc`) components are installed; pass `--components` to
+change that, e.g. `--components native,toolchains,previewer`.
+
 The command prints how to persist the `OHOS_SDK_NATIVE` environment variable, so subsequent
 `cargo ohos` invocations find the SDK automatically. The downloaded SDK is cached under
 `~/.cache/cargo-ohos/ohos-sdk` on Linux, `~/Library/Caches/cargo-ohos/ohos-sdk` on macOS, and

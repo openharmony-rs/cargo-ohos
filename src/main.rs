@@ -55,7 +55,13 @@ enum InitCmd {
     Sdk {
         /// OpenHarmony SDK version (or prefix), e.g. `6.0.0.1`.
         #[arg(long, value_name = "VERSION")]
-        version: String,
+        version: Option<String>,
+        /// OpenHarmony API level, e.g. `20`. Installs the newest SDK providing it.
+        #[arg(long, value_name = "LEVEL", conflicts_with = "version")]
+        api: Option<u32>,
+        /// List the SDK versions the mirror publishes and exit.
+        #[arg(long, conflicts_with_all = ["version", "api"])]
+        list: bool,
         /// SDK components to install, comma separated. `native` holds the clang
         /// toolchain and the sysroot, `toolchains` holds `hdc`.
         #[arg(
@@ -338,13 +344,50 @@ fn run_init(command: InitCmd) -> Result<(), String> {
     match command {
         InitCmd::Sdk {
             version,
+            api,
+            list,
             components,
         } => {
+            if list {
+                return print_sdk_versions();
+            }
+            let version = match (version, api) {
+                (Some(version), _) => version,
+                (None, Some(api)) => sdk::version_for_api(api)
+                    .ok_or_else(|| {
+                        let known = sdk::known_api_levels()
+                            .iter()
+                            .map(u32::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!(
+                            "unknown OpenHarmony API level {api}; known levels are {known}. \
+                             Any release can be installed with --version, see --list"
+                        )
+                    })?
+                    .to_owned(),
+                (None, None) => {
+                    return Err(
+                        "nothing to install: pass --version or --api, or --list to see what \
+                         the mirror publishes"
+                            .to_owned(),
+                    )
+                }
+            };
             let sdk = sdk::Sdk::download(&version, &components)?;
             print_sdk_instructions(&sdk);
             Ok(())
         }
     }
+}
+
+fn print_sdk_versions() -> Result<(), String> {
+    println!("{:<10} API LEVEL", "VERSION");
+    for (version, api) in sdk::available()? {
+        let api = api.map_or_else(|| "unknown".to_owned(), |api| api.to_string());
+        println!("{version:<10} {api}");
+    }
+    Ok(())
 }
 
 fn print_sdk_instructions(sdk: &sdk::Sdk) {

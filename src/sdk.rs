@@ -30,9 +30,63 @@ const ENV_CANDIDATES: &[&str] = &[
 #[cfg(target_os = "macos")]
 const DEFAULT_DEVECO_SDK_HOME: &str = "/Applications/DevEco-Studio.app/Contents/sdk";
 
+/// The API level each SDK release provides, newest first. Neither the release
+/// metadata nor the archive names carry it, so it cannot be derived - a release
+/// missing from this table can still be installed by version.
+const API_LEVELS: &[(&str, u32)] = &[
+    ("7.0", 26),
+    ("6.1", 23),
+    ("6.0.0.1", 20),
+    ("6.0", 20),
+    ("5.1.0", 18),
+    ("5.0.3", 15),
+    ("5.0.2", 14),
+    ("5.0.1", 13),
+    ("5.0.0", 12),
+    ("4.1", 11),
+    ("4.0", 10),
+];
+
 const SDK_RELEASES_URL: &str =
     "https://api.github.com/repos/openharmony-rs/ohos-sdk/releases?per_page=100";
 const SDK_CACHE_SUBDIR: &str = "ohos-sdk";
+
+/// The newest SDK version providing `api`.
+pub fn version_for_api(api: u32) -> Option<&'static str> {
+    API_LEVELS
+        .iter()
+        .find(|(_, level)| *level == api)
+        .map(|(version, _)| *version)
+}
+
+pub fn api_for_version(version: &str) -> Option<u32> {
+    API_LEVELS
+        .iter()
+        .find(|(known, _)| *known == version)
+        .map(|(_, level)| *level)
+}
+
+pub fn known_api_levels() -> Vec<u32> {
+    let mut levels: Vec<u32> = API_LEVELS.iter().map(|(_, level)| *level).collect();
+    levels.sort_unstable();
+    levels.dedup();
+    levels
+}
+
+/// The SDK versions the mirror publishes, newest first, with the API level of
+/// each where it is known.
+pub fn available() -> Result<Vec<(String, Option<u32>)>, String> {
+    let releases = download::releases(SDK_RELEASES_URL, SDK_CACHE_SUBDIR)?;
+    Ok(releases
+        .into_iter()
+        .filter(|release| !release.draft)
+        .filter_map(|release| release.tag_name.strip_prefix('v').map(str::to_owned))
+        .map(|version| {
+            let api = api_for_version(&version);
+            (version, api)
+        })
+        .collect())
+}
 
 struct Selection {
     version: String,
@@ -659,6 +713,15 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn resolves_api_levels_to_the_newest_sdk_version() {
+        assert_eq!(version_for_api(20), Some("6.0.0.1"));
+        assert_eq!(version_for_api(23), Some("6.1"));
+        assert_eq!(version_for_api(19), None);
+        assert_eq!(api_for_version("6.0"), Some(20));
+        assert_eq!(api_for_version("6.0.0"), None);
     }
 
     #[test]
