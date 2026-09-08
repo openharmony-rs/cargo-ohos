@@ -29,6 +29,10 @@ version always wins over a longer one. `--api` takes an OpenHarmony API level in
 the newest SDK providing it. `--list` prints the versions the mirror publishes with their API
 level.
 
+The API level of a release is read from a `API version: <level>` line in its release notes, and
+falls back to a table of the releases published before the mirror started declaring it. A new SDK
+therefore works with `--api` without a cargo-ohos release.
+
 The archive is checked against the SHA-256 the mirror publishes next to it, which catches a
 corrupted or truncated download. The SDK archives carry no build provenance attestation - unlike
 the prebuilt LLVM toolchains, whose signature `--download-prebuilt` verifies - so this is an

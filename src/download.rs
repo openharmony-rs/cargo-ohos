@@ -29,6 +29,8 @@ pub struct Asset {
 pub struct Release {
     pub tag_name: String,
     pub draft: bool,
+    #[serde(default)]
+    pub body: Option<String>,
     pub assets: Vec<Asset>,
 }
 
@@ -340,6 +342,7 @@ mod tests {
         Release {
             tag_name: tag.to_owned(),
             draft: false,
+            body: None,
             assets: Vec::new(),
         }
     }

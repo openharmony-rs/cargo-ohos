@@ -352,21 +352,9 @@ fn run_init(command: InitCmd) -> Result<(), String> {
             if list {
                 return print_sdk_versions();
             }
-            let version = match (version, api) {
-                (Some(version), _) => version,
-                (None, Some(api)) => sdk::version_for_api(api)
-                    .ok_or_else(|| {
-                        let known = sdk::known_api_levels()
-                            .iter()
-                            .map(u32::to_string)
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        format!(
-                            "unknown OpenHarmony API level {api}; known levels are {known}. \
-                             Any release can be installed with --version, see --list"
-                        )
-                    })?
-                    .to_owned(),
+            let request = match (version, api) {
+                (Some(version), _) => sdk::Request::Version(version),
+                (None, Some(api)) => sdk::Request::Api(api),
                 (None, None) => {
                     return Err(
                         "nothing to install: pass --version or --api, or --list to see what \
@@ -375,7 +363,7 @@ fn run_init(command: InitCmd) -> Result<(), String> {
                     )
                 }
             };
-            let sdk = sdk::Sdk::download(&version, &components)?;
+            let sdk = sdk::Sdk::download(&request, &components)?;
             print_sdk_instructions(&sdk);
             Ok(())
         }

@@ -325,6 +325,7 @@ mod tests {
         Release {
             tag_name: tag.to_owned(),
             draft: false,
+            body: None,
             assets: vec![Asset {
                 name: asset_name.to_owned(),
                 browser_download_url: "https://example.invalid/toolchain.tar.gz".to_owned(),

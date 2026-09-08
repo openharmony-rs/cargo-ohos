@@ -10,7 +10,8 @@
   `--components all` installs everything the release ships, which is what an hvigor app build
   needs.
   The SDK can also be selected by OpenHarmony API level with `--api`, and `--list` prints the
-  versions the mirror publishes.
+  versions the mirror publishes. The API level comes from an `API version:` line in the release
+  notes where the mirror declares one, and from a built-in table for the older releases.
 - SDK discovery falls back to the newest SDK downloaded by `cargo ohos init sdk`, after the
   environment variables and ahead of nothing at all.
 

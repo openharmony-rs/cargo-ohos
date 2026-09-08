@@ -30,9 +30,10 @@ const ENV_CANDIDATES: &[&str] = &[
 #[cfg(target_os = "macos")]
 const DEFAULT_DEVECO_SDK_HOME: &str = "/Applications/DevEco-Studio.app/Contents/sdk";
 
-/// The API level each SDK release provides, newest first. Neither the release
-/// metadata nor the archive names carry it, so it cannot be derived - a release
-/// missing from this table can still be installed by version.
+/// The API level each SDK release provides, newest first. Releases from the
+/// mirror declare their own API level in their notes; this table covers the ones
+/// published before that started, and a release in neither can still be
+/// installed by version.
 const API_LEVELS: &[(&str, u32)] = &[
     ("7.0", 26),
     ("6.1", 23),
@@ -54,26 +55,29 @@ const SDK_RELEASES_URL: &str =
     "https://api.github.com/repos/openharmony-rs/ohos-sdk/releases?per_page=100";
 const SDK_CACHE_SUBDIR: &str = "ohos-sdk";
 
-/// The newest SDK version providing `api`.
-pub fn version_for_api(api: u32) -> Option<&'static str> {
-    API_LEVELS
-        .iter()
-        .find(|(_, level)| *level == api)
-        .map(|(version, _)| *version)
+/// The API level of a release: what its notes declare, or the built-in table for
+/// the releases published before the mirror declared it.
+fn api_level(release: &download::Release, version: &str) -> Option<u32> {
+    declared_api_level(release).or_else(|| api_for_version(version))
 }
 
-pub fn api_for_version(version: &str) -> Option<u32> {
+/// The API level a release declares in its notes as `API version: <level>`.
+fn declared_api_level(release: &download::Release) -> Option<u32> {
+    release.body.as_deref()?.lines().find_map(|line| {
+        let (label, value) = line.split_once(':')?;
+        label
+            .trim()
+            .eq_ignore_ascii_case("api version")
+            .then(|| value.trim().parse().ok())
+            .flatten()
+    })
+}
+
+fn api_for_version(version: &str) -> Option<u32> {
     API_LEVELS
         .iter()
         .find(|(known, _)| *known == version)
         .map(|(_, level)| *level)
-}
-
-pub fn known_api_levels() -> Vec<u32> {
-    let mut levels: Vec<u32> = API_LEVELS.iter().map(|(_, level)| *level).collect();
-    levels.sort_unstable();
-    levels.dedup();
-    levels
 }
 
 /// The SDK versions the mirror publishes, newest first, with the API level of
@@ -83,12 +87,18 @@ pub fn available() -> Result<Vec<(String, Option<u32>)>, String> {
     Ok(releases
         .into_iter()
         .filter(|release| !release.draft)
-        .filter_map(|release| release.tag_name.strip_prefix('v').map(str::to_owned))
-        .map(|version| {
-            let api = api_for_version(&version);
-            (version, api)
+        .filter_map(|release| {
+            let version = release.tag_name.strip_prefix('v')?.to_owned();
+            let api = api_level(&release, &version);
+            Some((version, api))
         })
         .collect())
+}
+
+/// Which SDK release to install.
+pub enum Request {
+    Version(String),
+    Api(u32),
 }
 
 struct Selection {
@@ -168,16 +178,18 @@ impl Sdk {
 
     /// Download and cache the newest matching OpenHarmony SDK release. The SDK is
     /// fetched from the `openharmony-rs/ohos-sdk` GitHub mirror.
-    pub fn download(version: &str, components: &[String]) -> Result<Self, String> {
-        if !download::is_safe_component(version) {
-            return Err(format!(
-                "invalid OpenHarmony SDK version `{version}`; expected a version such as `6.0.0.1`"
-            ));
+    pub fn download(request: &Request, components: &[String]) -> Result<Self, String> {
+        if let Request::Version(version) = request {
+            if !download::is_safe_component(version) {
+                return Err(format!(
+                    "invalid OpenHarmony SDK version `{version}`; expected a version such as `6.0.0.1`"
+                ));
+            }
         }
         let releases = download::releases(SDK_RELEASES_URL, SDK_CACHE_SUBDIR)?;
         let selection = select(
             releases,
-            version,
+            request,
             std::env::consts::OS,
             std::env::consts::ARCH,
         )?;
@@ -267,15 +279,18 @@ impl Sdk {
 
 fn select(
     releases: Vec<download::Release>,
-    requested: &str,
+    request: &Request,
     os: &str,
     arch: &str,
 ) -> Result<Selection, String> {
     let archive_name = host_archive_name(os, arch).ok_or_else(|| {
         format!("OpenHarmony SDK archives are not available for host {os}-{arch}")
     })?;
-    let (release, version) = download::select_release(releases, "v", requested)
-        .ok_or_else(|| format!("no OpenHarmony SDK release matches version `{requested}`"))?;
+    let (release, version) = match request {
+        Request::Version(requested) => download::select_release(releases, "v", requested)
+            .ok_or_else(|| format!("no OpenHarmony SDK release matches version `{requested}`"))?,
+        Request::Api(api) => select_by_api(releases, *api)?,
+    };
     if !download::is_safe_component(&version) {
         return Err(format!(
             "release `{}` has an unsafe version name",
@@ -310,6 +325,44 @@ fn select(
         os_dir_name: os_dir_name(os),
         parts,
         sha256_asset,
+    })
+}
+
+/// The newest release providing API level `api`.
+fn select_by_api(
+    releases: Vec<download::Release>,
+    api: u32,
+) -> Result<(download::Release, String), String> {
+    let mut known = Vec::new();
+    let mut matched = None;
+    for release in releases {
+        if release.draft {
+            continue;
+        }
+        let Some(version) = release.tag_name.strip_prefix('v').map(str::to_owned) else {
+            continue;
+        };
+        let Some(level) = api_level(&release, &version) else {
+            continue;
+        };
+        if !known.contains(&level) {
+            known.push(level);
+        }
+        if level == api && matched.is_none() {
+            matched = Some((release, version));
+        }
+    }
+    matched.ok_or_else(|| {
+        known.sort_unstable();
+        let known = known
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "no OpenHarmony SDK release provides API level {api}; the mirror has {known}. \
+             Any release can be installed with --version, see --list"
+        )
     })
 }
 
@@ -770,6 +823,7 @@ mod tests {
         download::Release {
             tag_name: tag.to_owned(),
             draft: false,
+            body: None,
             assets: assets
                 .iter()
                 .map(|name| download::Asset {
@@ -783,12 +837,39 @@ mod tests {
     }
 
     #[test]
-    fn resolves_api_levels_to_the_newest_sdk_version() {
-        assert_eq!(version_for_api(20), Some("6.0.0.1"));
-        assert_eq!(version_for_api(23), Some("6.1"));
-        assert_eq!(version_for_api(19), None);
-        assert_eq!(api_for_version("6.0"), Some(20));
-        assert_eq!(api_for_version("6.0.0"), None);
+    fn reads_the_api_level_a_release_declares() {
+        let mut declared = release("v9.9", &[]);
+        declared.body = Some(
+            "OpenHarmony SDK mirror release for v9.9.\nAPI version: 42\nArchives larger than..."
+                .to_owned(),
+        );
+        assert_eq!(api_level(&declared, "9.9"), Some(42));
+
+        // Older releases predate the declaration and fall back to the table.
+        let listed = release("v6.1", &[]);
+        assert_eq!(api_level(&listed, "6.1"), Some(23));
+        assert_eq!(api_level(&release("v9.9", &[]), "9.9"), None);
+
+        // A declaration wins over the table, so a correction does not need a release.
+        let mut corrected = release("v6.1", &[]);
+        corrected.body = Some("api version:24".to_owned());
+        assert_eq!(api_level(&corrected, "6.1"), Some(24));
+    }
+
+    #[test]
+    fn selects_the_newest_release_providing_an_api_level() {
+        let releases = vec![
+            release("v7.0", &[]),
+            release("v6.0.0.1", &[]),
+            release("v6.0", &[]),
+        ];
+
+        let (selected, version) = select_by_api(releases, 20).unwrap();
+        assert_eq!(selected.tag_name, "v6.0.0.1");
+        assert_eq!(version, "6.0.0.1");
+
+        let error = select_by_api(vec![release("v6.1", &[])], 19).unwrap_err();
+        assert!(error.contains("the mirror has 23"), "{error}");
     }
 
     #[test]
@@ -862,7 +943,8 @@ mod tests {
                 ],
             ),
         ];
-        let selection = select(releases, "6.0", "linux", "x86_64").unwrap();
+        let selection =
+            select(releases, &Request::Version("6.0".into()), "linux", "x86_64").unwrap();
 
         assert_eq!(selection.version, "6.0.0.1");
         assert_eq!(selection.os_dir_name, "linux");
@@ -886,7 +968,7 @@ mod tests {
                 "ohos-sdk-windows_linux-public.tar.gz.ab",
             ],
         )];
-        assert!(select(releases, "6.0", "linux", "x86_64").is_err());
+        assert!(select(releases, &Request::Version("6.0".into()), "linux", "x86_64").is_err());
     }
 
     #[test]
