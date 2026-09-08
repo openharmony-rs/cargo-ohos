@@ -994,6 +994,67 @@ mod tests {
     }
 
     #[test]
+    fn the_cache_is_reused_only_for_an_identical_request() {
+        let parts = [
+            "ohos-sdk-windows_linux-public.tar.gz.aa",
+            "ohos-sdk-windows_linux-public.tar.gz.ab",
+            "ohos-sdk-windows_linux-public.tar.gz.sha256",
+        ];
+        let selection = select(
+            vec![release("v6.0", &parts)],
+            &Request::Version("6.0".to_owned()),
+            "linux",
+            "x86_64",
+        )
+        .unwrap();
+        let all = [ALL_COMPONENTS.to_owned()];
+        let narrow = ["native".to_owned(), "toolchains".to_owned()];
+
+        // An install made with the narrow set, as `--components native,toolchains` leaves it.
+        let root = TestDir::new();
+        let install_base = root.0.join("6.0").join("linux");
+        std::fs::create_dir_all(install_base.join("20").join("native")).unwrap();
+        std::fs::write(
+            install_base.join(download::COMPLETE_MARKER),
+            selection_marker(&selection, &narrow),
+        )
+        .unwrap();
+
+        assert_eq!(
+            existing_install(&install_base, &selection_marker(&selection, &narrow)),
+            Some(install_base.join("20")),
+            "the same request should be served from the cache"
+        );
+
+        // The direction that matters now that `all` is the default: a narrow install must not
+        // satisfy a request for every component, or hvigor fails on the missing ones later.
+        assert_eq!(
+            existing_install(&install_base, &selection_marker(&selection, &all)),
+            None
+        );
+
+        // A release re-published under the same tag with different assets is a different install.
+        let republished = select(
+            vec![release("v6.0", &[parts[0], parts[2]])],
+            &Request::Version("6.0".to_owned()),
+            "linux",
+            "x86_64",
+        )
+        .unwrap();
+        assert_eq!(
+            existing_install(&install_base, &selection_marker(&republished, &narrow)),
+            None
+        );
+
+        // An interrupted install leaves the tree but no marker.
+        std::fs::remove_file(install_base.join(download::COMPLETE_MARKER)).unwrap();
+        assert_eq!(
+            existing_install(&install_base, &selection_marker(&selection, &narrow)),
+            None
+        );
+    }
+
+    #[test]
     fn extracts_components_and_groups_by_api_version() {
         let temp = TestDir::new();
         let components = temp.0.join("linux");
