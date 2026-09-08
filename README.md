@@ -36,14 +36,13 @@ therefore works with `--api` without a cargo-ohos release.
 The archive is checked against the SHA-256 the mirror publishes next to it, and, where the mirror
 attested the archive, against that attestation via `gh attestation verify` - as `--download-prebuilt`
 does. Releases made before the mirror started attesting say so and are checksum-only. By default
-only the `native`
-(clang and sysroot) and `toolchains` (`hdc`) components are installed - all a cross-compile
-needs. Pass `--components` to change that, e.g. `--components all`.
+every component the release ships is installed, because hvigor refuses to build unless they are
+all present. A cross-compile needs less: `--components native,toolchains` is enough for
+`cargo ohos build`, and skips about a gigabyte of `ets`, `js` and `previewer`.
 
 The components are unpacked as `<version>/<host>/<api level>/<component>`, the layout hvigor and
 DevEco Studio expect from an OpenHarmony SDK: point `DEVECO_SDK_HOME` at the `<host>` directory
-and an app build finds them. That needs `--components all`, since an app build also uses `ets`,
-`js` and `previewer`. The mirror only publishes the OpenHarmony SDK, so a HarmonyOS build - which
+and an app build finds them. The mirror only publishes the OpenHarmony SDK, so a HarmonyOS build - which
 wants `default/openharmony` next to `default/hms` and an `sdk-pkg.json` - still needs the SDK from
 DevEco Studio or the HarmonyOS command line tools.
 

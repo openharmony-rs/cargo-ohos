@@ -63,14 +63,15 @@ enum InitCmd {
         /// List the SDK versions the mirror publishes and exit.
         #[arg(long, conflicts_with_all = ["version", "api"])]
         list: bool,
-        /// SDK components to install, comma separated, or `all`. `native` holds the
-        /// clang toolchain and the sysroot, `toolchains` holds `hdc`; an hvigor app
-        /// build also needs `ets`, `js` and `previewer`.
+        /// SDK components to install, comma separated, or `all` (the default).
+        /// hvigor refuses to build unless every component is present, so narrowing
+        /// this only suits a cross-compile: `native` holds the clang toolchain and
+        /// the sysroot, `toolchains` holds `hdc`.
         #[arg(
             long,
             value_name = "COMPONENTS",
             value_delimiter = ',',
-            default_value = "native,toolchains"
+            default_value = "all"
         )]
         components: Vec<String>,
     },

@@ -5,9 +5,9 @@
 - Add `cargo ohos init sdk --version <VERSION>` to download and cache the OpenHarmony SDK from
   the `openharmony-rs/ohos-sdk` mirror. The archive is checked against the SHA-256 the mirror
   publishes next to it, and against the mirror's build provenance attestation where there is one.
-  `--components` selects which SDK components to install and defaults to `native,toolchains`;
-  `--components all` installs everything the release ships, which is what an hvigor app build
-  needs.
+  `--components` selects which SDK components to install and defaults to `all`, since hvigor
+  refuses to build unless every component is present; `--components native,toolchains` is enough
+  for a cross-compile and about a gigabyte smaller.
   The SDK can also be selected by OpenHarmony API level with `--api`, and `--list` prints the
   versions the mirror publishes. The API level comes from an `API version:` line in the release
   notes where the mirror declares one, and from a built-in table for the older releases.
