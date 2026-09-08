@@ -6,7 +6,9 @@
   the `openharmony-rs/ohos-sdk` mirror. The archive is checked against the SHA-256 the mirror
   publishes next to it; the SDK archives carry no provenance attestation, so unlike
   `--download-prebuilt` this is an integrity check only.
-  `--components` selects which SDK components to install and defaults to `native,toolchains`.
+  `--components` selects which SDK components to install and defaults to `native,toolchains`;
+  `--components all` installs everything the release ships, which is what an hvigor app build
+  needs.
   The SDK can also be selected by OpenHarmony API level with `--api`, and `--list` prints the
   versions the mirror publishes.
 - SDK discovery falls back to the newest SDK downloaded by `cargo ohos init sdk`, after the

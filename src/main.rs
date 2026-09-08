@@ -62,8 +62,9 @@ enum InitCmd {
         /// List the SDK versions the mirror publishes and exit.
         #[arg(long, conflicts_with_all = ["version", "api"])]
         list: bool,
-        /// SDK components to install, comma separated. `native` holds the clang
-        /// toolchain and the sysroot, `toolchains` holds `hdc`.
+        /// SDK components to install, comma separated, or `all`. `native` holds the
+        /// clang toolchain and the sysroot, `toolchains` holds `hdc`; an hvigor app
+        /// build also needs `ets`, `js` and `previewer`.
         #[arg(
             long,
             value_name = "COMPONENTS",
@@ -391,10 +392,7 @@ fn print_sdk_versions() -> Result<(), String> {
 }
 
 fn print_sdk_instructions(sdk: &sdk::Sdk) {
-    let native = sdk.native_root.to_string_lossy();
-    // The SDK is canonicalized, which on Windows yields a `\\?\` extended-length
-    // path that most shells and build tools do not accept.
-    let native = native.strip_prefix(r"\\?\").unwrap_or(&native);
+    let native = display_path(&sdk.native_root);
     match (&sdk.version, sdk.api_version) {
         (Some(version), Some(api)) => {
             println!("OpenHarmony SDK {version} (API {api}) installed at:")
@@ -403,21 +401,48 @@ fn print_sdk_instructions(sdk: &sdk::Sdk) {
     }
     println!("  {native}");
     println!();
-    println!("Persist the location so cargo-ohos can find it:");
-    if cfg!(windows) {
-        println!(
-            "  PowerShell:  [Environment]::SetEnvironmentVariable('OHOS_SDK_NATIVE', '{native}', 'User')"
-        );
-        println!("  cmd.exe:     setx OHOS_SDK_NATIVE \"{native}\"");
+    println!("cargo-ohos will pick this up on its own. To point other tools at it:");
+    print_env_hint("OHOS_SDK_NATIVE", &native);
+    if let Some(root) = deveco_sdk_home(sdk) {
         println!();
-        println!("For the current PowerShell session only:");
-        println!("  $env:OHOS_SDK_NATIVE = '{native}'");
-    } else {
-        println!("  add to your shell profile: export OHOS_SDK_NATIVE=\"{native}\"");
+        println!("hvigor and DevEco Studio want the SDK root rather than the component:");
+        print_env_hint("DEVECO_SDK_HOME", &display_path(&root));
     }
     println!();
     println!("Or pass it on each invocation with:");
     println!("  cargo ohos build --sdk \"{native}\"");
+}
+
+/// Canonicalizing yields a `\\?\` extended-length path on Windows, which most
+/// shells and build tools do not accept.
+fn display_path(path: &Path) -> String {
+    let path = path.to_string_lossy();
+    path.strip_prefix(r"\\?\").unwrap_or(&path).to_owned()
+}
+
+fn print_env_hint(name: &str, value: &str) {
+    if cfg!(windows) {
+        println!(
+            "  PowerShell:   [Environment]::SetEnvironmentVariable('{name}', '{value}', 'User')"
+        );
+        println!("  cmd.exe:      setx {name} \"{value}\"");
+        println!("  this session: $env:{name} = '{value}'");
+    } else {
+        println!("  add to your shell profile: export {name}=\"{value}\"");
+    }
+}
+
+/// hvigor looks for `<root>/<api level>/<component>` and ignores components that
+/// sit anywhere else, which is the layout `init sdk` writes. The hint is only
+/// worth printing once the components an app build needs are actually there.
+fn deveco_sdk_home(sdk: &sdk::Sdk) -> Option<PathBuf> {
+    let api_level_dir = sdk.native_root.parent()?;
+    ["ets", "js", "native", "previewer", "toolchains"]
+        .iter()
+        .all(|component| api_level_dir.join(component).is_dir())
+        .then(|| api_level_dir.parent())
+        .flatten()
+        .map(Path::to_path_buf)
 }
 
 fn wants_cargo_help(rest: &[OsString]) -> bool {

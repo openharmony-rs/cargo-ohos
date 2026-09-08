@@ -47,6 +47,9 @@ const API_LEVELS: &[(&str, u32)] = &[
     ("4.0", 10),
 ];
 
+/// `--components` value asking for every component the release ships.
+pub const ALL_COMPONENTS: &str = "all";
+
 const SDK_RELEASES_URL: &str =
     "https://api.github.com/repos/openharmony-rs/ohos-sdk/releases?per_page=100";
 const SDK_CACHE_SUBDIR: &str = "ohos-sdk";
@@ -472,6 +475,9 @@ fn extract_host_components(
     selection: &Selection,
     components: &[String],
 ) -> Result<PathBuf, String> {
+    let all = components
+        .iter()
+        .any(|component| component == ALL_COMPONENTS);
     let mut hosts = BTreeSet::new();
     let mut available = BTreeSet::new();
     download::extract_tar_gz_filtered(archive_path, staging, |path| {
@@ -486,7 +492,7 @@ fn extract_host_components(
             return false;
         };
         available.insert(name.to_owned());
-        components.iter().any(|component| component == name)
+        all || components.iter().any(|component| component == name)
     })?;
 
     if !hosts.contains(selection.os_dir_name) {
@@ -500,7 +506,7 @@ fn extract_host_components(
     let missing: Vec<&str> = components
         .iter()
         .map(String::as_str)
-        .filter(|component| !available.contains(*component))
+        .filter(|component| !all && !available.contains(*component))
         .collect();
     if !missing.is_empty() {
         return Err(format!(

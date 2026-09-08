@@ -33,8 +33,15 @@ The archive is checked against the SHA-256 the mirror publishes next to it, whic
 corrupted or truncated download. The SDK archives carry no build provenance attestation - unlike
 the prebuilt LLVM toolchains, whose signature `--download-prebuilt` verifies - so this is an
 integrity check and not proof of origin. By default only the `native`
-(clang and sysroot) and `toolchains` (`hdc`) components are installed; pass `--components` to
-change that, e.g. `--components native,toolchains,previewer`.
+(clang and sysroot) and `toolchains` (`hdc`) components are installed - all a cross-compile
+needs. Pass `--components` to change that, e.g. `--components all`.
+
+The components are unpacked as `<version>/<host>/<api level>/<component>`, the layout hvigor and
+DevEco Studio expect from an OpenHarmony SDK: point `DEVECO_SDK_HOME` at the `<host>` directory
+and an app build finds them. That needs `--components all`, since an app build also uses `ets`,
+`js` and `previewer`. The mirror only publishes the OpenHarmony SDK, so a HarmonyOS build - which
+wants `default/openharmony` next to `default/hms` and an `sdk-pkg.json` - still needs the SDK from
+DevEco Studio or the HarmonyOS command line tools.
 
 `cargo ohos` falls back to the newest SDK in this cache when no SDK is configured, so a download
 is enough to get going; the command still prints how to persist `OHOS_SDK_NATIVE` for other tools,
