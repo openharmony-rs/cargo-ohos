@@ -126,10 +126,41 @@ impl Sdk {
             tried.push(path.display().to_string());
         }
 
+        let cache = download::cache_root(SDK_CACHE_SUBDIR);
+        if let Some(sdk) = Self::from_cache(&cache) {
+            return Ok(sdk);
+        }
+
         if tried.is_empty() {
             tried.push(format!("none of ${} are set", ENV_CANDIDATES.join(", $")));
         }
+        tried.push(format!("no SDK downloaded into {}", cache.display()));
         Err(Error::SdkNotFound { tried })
+    }
+
+    /// The newest completely installed SDK under a `cargo ohos init sdk` cache,
+    /// newest meaning the highest API level.
+    fn from_cache(cache: &Path) -> Option<Self> {
+        let host = os_dir_name(std::env::consts::OS);
+        let mut best: Option<(u32, Self)> = None;
+        for version in read_dir(cache) {
+            let install_base = version.path().join(host);
+            if !install_base.join(download::COMPLETE_MARKER).is_file() {
+                continue;
+            }
+            for entry in read_dir(&install_base) {
+                let Ok(api) = entry.file_name().to_string_lossy().parse::<u32>() else {
+                    continue;
+                };
+                if best.as_ref().is_some_and(|(best, _)| *best >= api) {
+                    continue;
+                }
+                if let Some(sdk) = Self::load(&entry.path().join("native")) {
+                    best = Some((api, sdk));
+                }
+            }
+        }
+        best.map(|(_, sdk)| sdk)
     }
 
     /// Download and cache the newest matching OpenHarmony SDK release. The SDK is
@@ -631,6 +662,10 @@ fn read_metadata(native_root: &Path) -> (Option<u32>, Option<String>) {
     (api_version, package.version)
 }
 
+fn read_dir(path: &Path) -> impl Iterator<Item = std::fs::DirEntry> {
+    std::fs::read_dir(path).into_iter().flatten().flatten()
+}
+
 fn exe(path: &Path) -> Option<PathBuf> {
     let with_ext = if cfg!(windows) {
         path.with_extension("exe")
@@ -679,6 +714,32 @@ mod tests {
         assert_eq!(sdk.native_root, dunce::canonicalize(native).unwrap());
         assert_eq!(sdk.api_version, None);
         assert_eq!(sdk.version, None);
+    }
+
+    #[test]
+    fn picks_the_newest_completed_install_from_the_cache() {
+        let cache = TestDir::new();
+        let host = os_dir_name(std::env::consts::OS);
+        let install = |version: &str, api: u32, complete: bool| {
+            let base = cache.0.join(version).join(host);
+            let native = base.join(api.to_string()).join("native");
+            std::fs::create_dir_all(native.join("llvm/bin")).unwrap();
+            std::fs::create_dir(native.join("sysroot")).unwrap();
+            if complete {
+                std::fs::write(base.join(download::COMPLETE_MARKER), "marker").unwrap();
+            }
+        };
+        install("5.1.0", 18, true);
+        install("6.0.0.1", 20, true);
+        // An interrupted install is not a usable SDK.
+        install("7.0", 26, false);
+
+        let sdk = Sdk::from_cache(&cache.0).unwrap();
+
+        assert!(sdk
+            .native_root
+            .ends_with(format!("6.0.0.1/{host}/20/native")));
+        assert!(Sdk::from_cache(&cache.0.join("nothing-here")).is_none());
     }
 
     #[test]

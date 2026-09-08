@@ -9,6 +9,8 @@
   `--components` selects which SDK components to install and defaults to `native,toolchains`.
   The SDK can also be selected by OpenHarmony API level with `--api`, and `--list` prints the
   versions the mirror publishes.
+- SDK discovery falls back to the newest SDK downloaded by `cargo ohos init sdk`, after the
+  environment variables and ahead of nothing at all.
 
 ## 0.3.2
 

@@ -36,8 +36,9 @@ integrity check and not proof of origin. By default only the `native`
 (clang and sysroot) and `toolchains` (`hdc`) components are installed; pass `--components` to
 change that, e.g. `--components native,toolchains,previewer`.
 
-The command prints how to persist the `OHOS_SDK_NATIVE` environment variable, so subsequent
-`cargo ohos` invocations find the SDK automatically. The downloaded SDK is cached under
+`cargo ohos` falls back to the newest SDK in this cache when no SDK is configured, so a download
+is enough to get going; the command still prints how to persist `OHOS_SDK_NATIVE` for other tools,
+and an explicit `--sdk` or environment variable always wins. The downloaded SDK is cached under
 `~/.cache/cargo-ohos/ohos-sdk` on Linux, `~/Library/Caches/cargo-ohos/ohos-sdk` on macOS, and
 `%LOCALAPPDATA%\cargo-ohos\ohos-sdk` on Windows.
 
