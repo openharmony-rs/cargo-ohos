@@ -34,9 +34,9 @@ falls back to a table of the releases published before the mirror started declar
 therefore works with `--api` without a cargo-ohos release.
 
 The archive is checked against the SHA-256 the mirror publishes next to it, which catches a
-corrupted or truncated download. The SDK archives carry no build provenance attestation - unlike
-the prebuilt LLVM toolchains, whose signature `--download-prebuilt` verifies - so this is an
-integrity check and not proof of origin. By default only the `native`
+corrupted or truncated download. The mirror attests its release artifacts from v7.0 on, but
+cargo-ohos does not yet verify that attestation the way `--download-prebuilt` does, so this
+remains an integrity check rather than proof of origin. By default only the `native`
 (clang and sysroot) and `toolchains` (`hdc`) components are installed - all a cross-compile
 needs. Pass `--components` to change that, e.g. `--components all`.
 

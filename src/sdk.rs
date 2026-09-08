@@ -496,7 +496,10 @@ fn selection_marker(selection: &Selection, components: &[String]) -> String {
 fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Result<(), String> {
     // Fetch the tiny checksum file first to learn the expected digest. The
     // `openharmony-rs/ohos-sdk` mirror always publishes this file, unlike the
-    // GitHub `digest` field which is missing for older releases.
+    // GitHub `digest` field which is missing for older releases. Note that this
+    // is integrity only: the mirror attests its artifacts from v7.0 on, but the
+    // attested subjects are the individual parts, not the archive they
+    // concatenate into, so `gh attestation verify` cannot check this file.
     let expected = download::fetch_string(&selection.sha256_asset.browser_download_url)?;
     let expected = expected
         .split_whitespace()
