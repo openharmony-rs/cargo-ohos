@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use fs4::FileExt;
 
+use crate::attestation;
 use crate::build_env::Error;
 use crate::download;
 
@@ -50,6 +51,11 @@ const API_LEVELS: &[(&str, u32)] = &[
 
 /// `--components` value asking for every component the release ships.
 pub const ALL_COMPONENTS: &str = "all";
+
+const SIGNER: attestation::Signer = attestation::Signer {
+    repository: "openharmony-rs/ohos-sdk",
+    workflow: "openharmony-rs/ohos-sdk/.github/workflows/Release.yml",
+};
 
 const SDK_RELEASES_URL: &str =
     "https://api.github.com/repos/openharmony-rs/ohos-sdk/releases?per_page=100";
@@ -496,10 +502,7 @@ fn selection_marker(selection: &Selection, components: &[String]) -> String {
 fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Result<(), String> {
     // Fetch the tiny checksum file first to learn the expected digest. The
     // `openharmony-rs/ohos-sdk` mirror always publishes this file, unlike the
-    // GitHub `digest` field which is missing for older releases. Note that this
-    // is integrity only: the mirror attests its artifacts from v7.0 on, but the
-    // attested subjects are the individual parts, not the archive they
-    // concatenate into, so `gh attestation verify` cannot check this file.
+    // GitHub `digest` field which is missing for older releases.
     let expected = download::fetch_string(&selection.sha256_asset.browser_download_url)?;
     let expected = expected
         .split_whitespace()
@@ -518,6 +521,22 @@ fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Resul
         return Err(format!(
             "SHA-256 mismatch for the OpenHarmony SDK archive: expected {expected}, got {actual}"
         ));
+    }
+
+    // The mirror attests the archive as published upstream, before it is split
+    // into release-sized parts. Releases made before it started doing so have
+    // nothing to check.
+    if attestation::is_attested(&expected, &SIGNER)? {
+        attestation::verify(
+            archive_path,
+            &SIGNER,
+            &format!("refs/tags/v{}", selection.version),
+        )?;
+    } else {
+        eprintln!(
+            "note: release `v{}` has no build provenance attestation for the whole archive",
+            selection.version
+        );
     }
     Ok(())
 }

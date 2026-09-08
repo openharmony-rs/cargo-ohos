@@ -1,14 +1,16 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
 use fs4::FileExt;
 
+use crate::attestation;
 use crate::download;
 
 const RELEASES_URL: &str =
     "https://api.github.com/repos/openharmony-rs/ohos-llvm-toolchains/releases?per_page=100";
-const RELEASE_REPOSITORY: &str = "openharmony-rs/ohos-llvm-toolchains";
-const SIGNER_WORKFLOW: &str = "openharmony-rs/ohos-llvm-toolchains/.github/workflows/mirror.yml";
+const SIGNER: attestation::Signer = attestation::Signer {
+    repository: "openharmony-rs/ohos-llvm-toolchains",
+    workflow: "openharmony-rs/ohos-llvm-toolchains/.github/workflows/mirror.yml",
+};
 const CACHE_SUBDIR: &str = "ohos-llvm";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,7 +156,7 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
 
     let result = (|| {
         download_and_verify(&selection.asset, &selection.sha256, &archive_path)?;
-        verify_attestation(&archive_path)?;
+        attestation::verify(&archive_path, &SIGNER, "refs/heads/main")?;
         std::fs::create_dir(&staging)
             .map_err(|e| format!("could not create {}: {e}", staging.display()))?;
         download::extract_tar_gz(&archive_path, &staging)?;
@@ -195,74 +197,6 @@ fn download_and_verify(
         ));
     }
     Ok(())
-}
-
-fn verify_attestation(artifact: &Path) -> Result<(), String> {
-    verify_attestation_with(artifact, |command| command.output())
-}
-
-fn verify_attestation_with(
-    artifact: &Path,
-    mut run: impl FnMut(&mut Command) -> std::io::Result<Output>,
-) -> Result<(), String> {
-    let auth_output = match run(Command::new("gh")
-        .arg("auth")
-        .arg("status")
-        .arg("--active")
-        .arg("--hostname")
-        .arg("github.com"))
-    {
-        Ok(output) => output,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!(
-                "note: `gh` is not installed; skipping GitHub artifact attestation verification"
-            );
-            return Ok(());
-        }
-        Err(error) => return Err(format!("could not run `gh auth status`: {error}")),
-    };
-    if !auth_output.status.success() {
-        eprintln!(
-            "note: `gh` is not authenticated; skipping GitHub artifact attestation verification"
-        );
-        return Ok(());
-    }
-
-    let output = run(Command::new("gh")
-        .arg("attestation")
-        .arg("verify")
-        .arg(artifact)
-        .arg("--repo")
-        .arg(RELEASE_REPOSITORY)
-        .arg("--signer-workflow")
-        .arg(SIGNER_WORKFLOW)
-        .arg("--source-ref")
-        .arg("refs/heads/main")
-        .arg("--deny-self-hosted-runners"))
-    .map_err(|error| format!("could not run `gh attestation verify`: {error}"))?;
-    if !output.status.success() {
-        return Err(with_command_output(
-            format!(
-                "GitHub artifact attestation verification failed for {}",
-                artifact.display()
-            ),
-            &output.stdout,
-            &output.stderr,
-        ));
-    }
-    eprintln!("note: GitHub artifact attestation verified");
-    Ok(())
-}
-
-fn with_command_output(mut message: String, stdout: &[u8], stderr: &[u8]) -> String {
-    for (label, bytes) in [("stdout", stdout), ("stderr", stderr)] {
-        let text = String::from_utf8_lossy(bytes);
-        let text = text.trim();
-        if !text.is_empty() {
-            message.push_str(&format!("\n{label}:\n{text}"));
-        }
-    }
-    message
 }
 
 fn find_toolchain_root(staging: &Path) -> Result<PathBuf, String> {
@@ -373,20 +307,6 @@ mod tests {
         assert!(validate_version("").is_err());
         assert!(validate_version("../../19").is_err());
         assert!(validate_version("19/latest").is_err());
-    }
-
-    #[test]
-    fn includes_captured_command_output_in_errors() {
-        let message = with_command_output(
-            "verification failed".to_owned(),
-            b"attestation details\n",
-            b"verification error\n",
-        );
-
-        assert_eq!(
-            message,
-            "verification failed\nstdout:\nattestation details\nstderr:\nverification error"
-        );
     }
 
     #[test]
