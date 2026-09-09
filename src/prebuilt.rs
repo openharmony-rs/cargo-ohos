@@ -140,9 +140,7 @@ fn install(selection: &Selection) -> Result<PathBuf, String> {
         );
         return Ok(install_dir);
     }
-
-    // Named after what the lock covers, so that the leftovers of an interrupted
-    // run are reclaimed by the next one instead of lingering as dead gigabytes.
+    
     let archive_path = root.join(format!(
         ".download-{}-{}.tar.gz",
         selection.version, selection.host.id

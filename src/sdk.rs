@@ -421,8 +421,6 @@ fn install(selection: &Selection, components: &[String]) -> Result<PathBuf, Stri
         return Ok(installed);
     }
 
-    // Named after what the lock covers, so that the leftovers of an interrupted
-    // run are reclaimed by the next one instead of lingering as dead gigabytes.
     let archive_path = root.join(format!(
         ".download-sdk-{}-{}.tar.gz",
         selection.version, selection.os_dir_name
