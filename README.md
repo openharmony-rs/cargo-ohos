@@ -46,8 +46,10 @@ and an app build finds them. The mirror only publishes the OpenHarmony SDK, so a
 wants `default/openharmony` next to `default/hms` and an `sdk-pkg.json` - still needs the SDK from
 DevEco Studio or the HarmonyOS command line tools.
 
-The command prints how to persist the `OHOS_SDK_NATIVE` environment variable, so subsequent
-`cargo ohos` invocations find the SDK automatically. The downloaded SDK is cached under
+`cargo ohos` falls back to the newest SDK in this cache when no SDK is configured, so a download
+is enough to get going; the command still prints how to persist `OHOS_SDK_NATIVE` for other tools,
+and an explicit `--sdk` or environment variable always wins. A variable that is set but does not
+point at an SDK is an error rather than a reason to fall back. The downloaded SDK is cached under
 `~/.cache/cargo-ohos/ohos-sdk` on Linux, `~/Library/Caches/cargo-ohos/ohos-sdk` on macOS, and
 `%LOCALAPPDATA%\cargo-ohos\ohos-sdk` on Windows.
 
