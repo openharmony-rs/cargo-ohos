@@ -8,6 +8,9 @@
   `--components` selects which SDK components to install and defaults to `all`, since hvigor
   refuses to build unless every component is present; `--components native,toolchains` is enough
   for a cross-compile and about a gigabyte smaller.
+  The SDK can also be selected by OpenHarmony API level with `--api`, and `--list` prints the
+  versions the mirror publishes. The API level comes from an `API version:` line in the release
+  notes where the mirror declares one, and from a built-in table for the older releases.
 
 ## 0.3.2
 

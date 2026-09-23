@@ -20,10 +20,18 @@ The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Stu
 
 ```sh
 cargo ohos init sdk --version=6.0.0.1
+cargo ohos init sdk --api=20
+cargo ohos init sdk --list
 ```
 
 `--version` takes a full or prefix SDK version (`6.0.0` selects the newest `6.0.0.x`); an exact
-version always wins over a longer one.
+version always wins over a longer one. `--api` takes an OpenHarmony API level instead and installs
+the newest SDK providing it. `--list` prints the versions the mirror publishes with their API
+level.
+
+The API level of a release is read from a `API version: <level>` line in its release notes, and
+falls back to a table of the releases published before the mirror started declaring it. A new SDK
+therefore works with `--api` without a cargo-ohos release.
 
 The archive is checked against the SHA-256 the mirror publishes next to it, and, where the mirror
 attested the archive, against that attestation via `gh attestation verify` - as `--download-prebuilt`

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use clap::builder::PossibleValuesParser;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
 use build_env::BuildEnv;
 use target::Target;
@@ -54,10 +54,17 @@ enum Cmd {
 #[derive(Subcommand)]
 enum InitCmd {
     /// Download and cache the OpenHarmony SDK.
+    #[command(group(ArgGroup::new("release").required(true).args(["version", "api", "list"])))]
     Sdk {
         /// OpenHarmony SDK version (or prefix), e.g. `6.0.0.1`.
         #[arg(long, value_name = "VERSION")]
-        version: String,
+        version: Option<String>,
+        /// OpenHarmony API level, e.g. `20`. Installs the newest SDK providing it.
+        #[arg(long, value_name = "LEVEL")]
+        api: Option<u32>,
+        /// List the SDK versions the mirror publishes and exit.
+        #[arg(long)]
+        list: bool,
         /// SDK components to install, comma separated, or `all` (the default).
         /// hvigor refuses to build unless every component is present, so narrowing
         /// this only suits a cross-compile: `native`, which is always needed, holds
@@ -345,13 +352,32 @@ fn run_init(command: InitCmd) -> Result<(), String> {
     match command {
         InitCmd::Sdk {
             version,
+            api,
+            list,
             components,
         } => {
-            let sdk = sdk::Sdk::download(&version, &sdk::Components::new(components))?;
+            if list {
+                return print_sdk_versions();
+            }
+            let request = match (version, api) {
+                (Some(version), _) => sdk::Request::Version(version),
+                (None, Some(api)) => sdk::Request::Api(api),
+                (None, None) => unreachable!("clap requires --version, --api or --list"),
+            };
+            let sdk = sdk::Sdk::download(&request, &sdk::Components::new(components))?;
             print_sdk_instructions(&sdk);
             Ok(())
         }
     }
+}
+
+fn print_sdk_versions() -> Result<(), String> {
+    println!("{:<10} API LEVEL", "VERSION");
+    for (version, api) in sdk::available()? {
+        let api = api.map_or_else(|| "unknown".to_owned(), |api| api.to_string());
+        println!("{version:<10} {api}");
+    }
+    Ok(())
 }
 
 fn print_sdk_instructions(sdk: &sdk::Sdk) {
