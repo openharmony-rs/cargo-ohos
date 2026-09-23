@@ -390,7 +390,7 @@ fn print_sdk_instructions(sdk: &sdk::Sdk) {
     }
     println!("  {native}");
     println!();
-    println!("Persist the location so cargo-ohos can find it:");
+    println!("cargo-ohos will pick this up on its own. To point other tools at it:");
     print_env_hint("OHOS_SDK_NATIVE", &sdk.native_root);
     if let Some(root) = deveco_sdk_home(sdk) {
         println!();

@@ -158,6 +158,9 @@ impl Sdk {
             }
             tried.push(format!("${var} = {}", path.display()));
         }
+        // A variable that is set but wrong is a mistake to report, not a reason to
+        // quietly build with some other SDK.
+        let misconfigured = !tried.is_empty();
 
         #[cfg(target_os = "macos")]
         if std::env::var_os("DEVECO_SDK_HOME").is_none() {
@@ -171,7 +174,36 @@ impl Sdk {
         if tried.is_empty() {
             tried.push(format!("none of ${} are set", ENV_CANDIDATES.join(", $")));
         }
+        if !misconfigured {
+            let cache = download::cache_root(SDK_CACHE_SUBDIR);
+            if let Some(sdk) = Self::from_cache(&cache) {
+                return Ok(sdk);
+            }
+            tried.push(format!("no SDK downloaded into {}", cache.display()));
+        }
         Err(Error::SdkNotFound { tried })
+    }
+
+    /// The newest completely installed SDK under a `cargo ohos init sdk` cache:
+    /// the highest API level, and of those the highest SDK version.
+    fn from_cache(cache: &Path) -> Option<Self> {
+        let host = os_dir_name(std::env::consts::OS);
+        std::fs::read_dir(cache)
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path().join(host))
+            .filter(|install_base| install_base.join(download::COMPLETE_MARKER).is_file())
+            .filter_map(|install_base| Self::from_candidate(&install_base))
+            .max_by_key(|sdk| {
+                let version: Vec<u32> = sdk
+                    .version
+                    .as_deref()
+                    .unwrap_or_default()
+                    .split('.')
+                    .map(|part| part.parse().unwrap_or(0))
+                    .collect();
+                (sdk.api_version, version)
+            })
     }
 
     /// Download and cache the newest matching OpenHarmony SDK release. The SDK is
@@ -714,6 +746,39 @@ mod tests {
         assert_eq!(sdk.native_root, dunce::canonicalize(native).unwrap());
         assert_eq!(sdk.api_version, None);
         assert_eq!(sdk.version, None);
+    }
+
+    #[test]
+    fn picks_the_newest_completed_install_from_the_cache() {
+        let cache = TestDir::new();
+        let host = os_dir_name(std::env::consts::OS);
+        let install = |release: &str, api: u32, version: &str, complete: bool| {
+            let base = cache.0.join(release).join(host);
+            let native = base.join(api.to_string()).join("native");
+            std::fs::create_dir_all(native.join("llvm/bin")).unwrap();
+            std::fs::create_dir(native.join("sysroot")).unwrap();
+            std::fs::write(
+                native.join("oh-uni-package.json"),
+                format!(r#"{{"apiVersion":"{api}","version":"{version}"}}"#),
+            )
+            .unwrap();
+            if complete {
+                std::fs::write(base.join(download::COMPLETE_MARKER), "marker").unwrap();
+            }
+        };
+        install("5.1.0", 18, "5.1.0.107", true);
+        // Two releases can provide the same API level; the newer SDK wins.
+        install("6.0.0.1", 20, "6.0.0.48", true);
+        install("6.0", 20, "6.0.0.47", true);
+        // An interrupted install is not a usable SDK.
+        install("7.0", 26, "26.0.0.38", false);
+
+        let sdk = Sdk::from_cache(&cache.0).unwrap();
+
+        assert!(sdk
+            .native_root
+            .ends_with(format!("6.0.0.1/{host}/20/native")));
+        assert!(Sdk::from_cache(&cache.0.join("nothing-here")).is_none());
     }
 
     #[test]
