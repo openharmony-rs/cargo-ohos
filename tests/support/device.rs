@@ -162,49 +162,31 @@ fn device_arch(connect_key: &str) -> Option<String> {
 /// Where `ohos-test-runner` puts the binaries and their runtime libraries.
 const TEST_BIN_DIR: &str = "/data/local/tmp/ohos-test-runner";
 
-fn on_device_path(library: &Path) -> String {
+/// Asserts the device holds `library` with exactly the contents it has on the host. The runner
+/// put runtime libraries next to the binaries up to 0.1.5, and into a content-addressed
+/// directory of their own since 0.1.6, so both places are checked.
+pub fn assert_runtime_library_on_device(connect_key: &str, library: &Path) {
     let name = library
         .file_name()
         .expect("a runtime library has a file name")
         .to_string_lossy();
-    format!("{TEST_BIN_DIR}/{name}")
-}
-
-/// Removes a runtime library from the device, so a later assertion is about the run under test
-/// rather than about a leftover. The test runner sends it again when it is needed.
-pub fn remove_runtime_library(connect_key: &str, library: &Path) {
     let output = Command::new("hdc")
         .args([
             "-t",
             connect_key,
             "shell",
-            "rm",
-            "-f",
-            &on_device_path(library),
+            &format!("md5sum {TEST_BIN_DIR}/{name} {TEST_BIN_DIR}/*/{name}"),
         ])
         .output()
         .expect("could not run hdc");
-    assert!(
-        output.status.success(),
-        "could not clear {}",
-        on_device_path(library)
-    );
-}
-
-/// Asserts the device holds `library` with exactly the contents it has on the host.
-pub fn assert_runtime_library_on_device(connect_key: &str, library: &Path) {
-    let on_device = on_device_path(library);
-    let output = Command::new("hdc")
-        .args(["-t", connect_key, "shell", "md5sum", &on_device])
-        .output()
-        .expect("could not run hdc");
-    let stdout = String::from_utf8_lossy(&output.stdout);
     // `hdc shell` reports success even when the command it ran failed.
-    let reported = stdout.split_whitespace().next().unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&output.stdout);
     let expected = md5(library);
-    assert_eq!(
-        reported, expected,
-        "{on_device} does not hold the runtime library the binary was linked against \
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line.split_whitespace().next() == Some(expected.as_str())),
+        "no {name} under {TEST_BIN_DIR} holds the runtime library the binary was linked against \
          (`hdc shell md5sum` said {stdout:?})"
     );
 }

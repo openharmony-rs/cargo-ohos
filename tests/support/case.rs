@@ -140,14 +140,11 @@ fn run_on_device(
     let _guard = device::lock(&device.connect_key);
     eprintln!("note: {case}: running on {}", device.connect_key);
     let libraries = reported_runtime_libraries(build_env);
-    // Removed first, so the assertion below is about this run rather than about a leftover
-    // from an earlier one. The runner recreates them.
-    for library in &libraries {
-        device::remove_runtime_library(&device.connect_key, library);
-    }
 
     let run = cargo_ohos(project, config)
         .env("OHOS_TEST_RUNNER_HDC_TARGET", &device.connect_key)
+        // From 0.1.6 the runner removes a run's builds once cargo exits, racing the check below.
+        .env("OHOS_TEST_RUNNER_KEEP_BUILDS", "1")
         .arg("test")
         .args(config.cargo_args())
         .args(["--", "--test-threads=1"])
