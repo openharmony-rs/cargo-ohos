@@ -4,6 +4,8 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+use crate::download;
+
 /// The workflow allowed to have produced an artifact.
 pub struct Signer {
     pub repository: &'static str,
@@ -41,6 +43,15 @@ fn available_with(
         );
     }
     Ok(auth_output.status.success())
+}
+
+/// Whether `repository` published an attestation covering `digest`. Releases made
+/// before a mirror started attesting have none, and cannot be verified.
+pub fn is_attested(digest: &str, signer: &Signer) -> Result<bool, String> {
+    download::exists(&format!(
+        "https://api.github.com/repos/{}/attestations/sha256:{digest}",
+        signer.repository
+    ))
 }
 
 /// Verify that `artifact` was built by `signer`'s workflow at `source_ref`. Needs
