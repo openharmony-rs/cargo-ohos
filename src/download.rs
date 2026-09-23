@@ -101,6 +101,16 @@ fn request(url: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
         .map_err(|e| format!("request to {url} failed: {e}"))
 }
 
+/// Whether the resource at `url` exists. A 404 is an answer; anything else that
+/// goes wrong is a failure to ask, not a "no".
+pub fn exists(url: &str) -> Result<bool, String> {
+    match build_request(url).call() {
+        Ok(_) => Ok(true),
+        Err(ureq::Error::StatusCode(404)) => Ok(false),
+        Err(e) => Err(format!("request to {url} failed: {e}")),
+    }
+}
+
 fn build_request(url: &str) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
     let mut request = ureq::get(url)
         .header("User-Agent", USER_AGENT)

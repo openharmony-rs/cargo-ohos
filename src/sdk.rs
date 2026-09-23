@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use crate::attestation;
 use crate::build_env::Error;
 use crate::download;
 
@@ -58,6 +59,11 @@ impl Components {
         }
     }
 }
+
+const SIGNER: attestation::Signer = attestation::Signer {
+    repository: "openharmony-rs/ohos-sdk",
+    workflow: "openharmony-rs/ohos-sdk/.github/workflows/Release.yml",
+};
 
 const SDK_RELEASES_URL: &str =
     "https://api.github.com/repos/openharmony-rs/ohos-sdk/releases?per_page=100";
@@ -401,7 +407,31 @@ fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Resul
         )
     })?;
 
-    download::download_to_file(&selection.parts, &expected, archive_path)
+    // The mirror attests the archive as published upstream, before it is split
+    // into release-sized parts. Releases made before it started doing so have
+    // nothing to check. Asked before the download, so a failed query costs no
+    // gigabytes.
+    let verify_attestation = if !attestation::available()? {
+        false
+    } else if attestation::is_attested(&expected, &SIGNER)? {
+        true
+    } else {
+        eprintln!(
+            "note: release `v{}` has no build provenance attestation for the whole archive",
+            selection.version
+        );
+        false
+    };
+
+    download::download_to_file(&selection.parts, &expected, archive_path)?;
+    if verify_attestation {
+        attestation::verify(
+            archive_path,
+            &SIGNER,
+            &format!("refs/tags/v{}", selection.version),
+        )?;
+    }
+    Ok(())
 }
 
 /// Unpack only the component archives of the host we are installing for into

@@ -25,7 +25,9 @@ cargo ohos init sdk --version=6.0.0.1
 `--version` takes a full or prefix SDK version (`6.0.0` selects the newest `6.0.0.x`); an exact
 version always wins over a longer one.
 
-The archive is checked against the SHA-256 the mirror publishes next to it. By default
+The archive is checked against the SHA-256 the mirror publishes next to it, and, where the mirror
+attested the archive, against that attestation via `gh attestation verify` - as `--download-prebuilt`
+does. Releases made before the mirror started attesting say so and are checksum-only. By default
 every component the release ships is installed, because hvigor refuses to build unless they are
 all present. A cross-compile needs less: `--components native,toolchains` is enough for
 `cargo ohos build`, and skips about a gigabyte of `ets`, `js` and `previewer`.
