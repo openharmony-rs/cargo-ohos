@@ -11,6 +11,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use clap::builder::PossibleValuesParser;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use build_env::BuildEnv;
@@ -41,8 +42,37 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = Format::Json)]
         format: Format,
     },
+    /// Download and set up the OpenHarmony toolchain.
+    Init {
+        #[command(subcommand)]
+        command: InitCmd,
+    },
     #[command(external_subcommand)]
     Cargo(Vec<OsString>),
+}
+
+#[derive(Subcommand)]
+enum InitCmd {
+    /// Download and cache the OpenHarmony SDK.
+    Sdk {
+        /// OpenHarmony SDK version (or prefix), e.g. `6.0.0.1`.
+        #[arg(long, value_name = "VERSION")]
+        version: String,
+        /// SDK components to install, comma separated, or `all` (the default).
+        /// hvigor refuses to build unless every component is present, so narrowing
+        /// this only suits a cross-compile: `native`, which is always needed, holds
+        /// the clang toolchain and the sysroot, `toolchains` holds `hdc`.
+        #[arg(
+            long,
+            value_name = "COMPONENTS",
+            value_delimiter = ',',
+            default_value = sdk::ALL_COMPONENTS,
+            value_parser = PossibleValuesParser::new(
+                [sdk::ALL_COMPONENTS].into_iter().chain(sdk::COMPONENTS.iter().copied())
+            )
+        )]
+        components: Vec<String>,
+    },
 }
 
 #[derive(Args, Default)]
@@ -233,6 +263,10 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             emit(&build_env, format);
             return Ok(ExitCode::SUCCESS);
         }
+        Cmd::Init { command } => {
+            run_init(command)?;
+            return Ok(ExitCode::SUCCESS);
+        }
         Cmd::Cargo(args) => args,
     };
     let (options, rest) = split_cargo_args(args)?;
@@ -305,6 +339,69 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         format!("--target={}", build_env.target.rust_triple).into(),
     );
     spawn(Some(&build_env), &argv)
+}
+
+fn run_init(command: InitCmd) -> Result<(), String> {
+    match command {
+        InitCmd::Sdk {
+            version,
+            components,
+        } => {
+            let sdk = sdk::Sdk::download(&version, &sdk::Components::new(components))?;
+            print_sdk_instructions(&sdk);
+            Ok(())
+        }
+    }
+}
+
+fn print_sdk_instructions(sdk: &sdk::Sdk) {
+    let native = sdk.native_root.display();
+    match (&sdk.version, sdk.api_version) {
+        (Some(version), Some(api)) => {
+            println!("OpenHarmony SDK {version} (API {api}) installed at:")
+        }
+        _ => println!("OpenHarmony SDK installed at:"),
+    }
+    println!("  {native}");
+    println!();
+    println!("Persist the location so cargo-ohos can find it:");
+    print_env_hint("OHOS_SDK_NATIVE", &sdk.native_root);
+    if let Some(root) = deveco_sdk_home(sdk) {
+        println!();
+        println!("hvigor and DevEco Studio want the SDK root rather than the component:");
+        print_env_hint("DEVECO_SDK_HOME", &root);
+    }
+    println!();
+    println!("Or pass it on each invocation with:");
+    println!("  cargo ohos build --sdk \"{native}\"");
+}
+
+fn print_env_hint(name: &str, value: &Path) {
+    let value = value.display().to_string();
+    if cfg!(windows) {
+        // PowerShell escapes a quote in a single-quoted string by doubling it.
+        let quoted = value.replace('\'', "''");
+        println!(
+            "  PowerShell:   [Environment]::SetEnvironmentVariable('{name}', '{quoted}', 'User')"
+        );
+        println!("  cmd.exe:      setx {name} \"{value}\"");
+        println!("  this session: $env:{name} = '{quoted}'");
+    } else {
+        println!("  add to your shell profile: export {name}=\"{value}\"");
+    }
+}
+
+/// hvigor looks for `<root>/<api level>/<component>` and ignores components that
+/// sit anywhere else, which is the layout `init sdk` writes. The hint is only
+/// worth printing once the components an app build needs are actually there.
+fn deveco_sdk_home(sdk: &sdk::Sdk) -> Option<PathBuf> {
+    let api_level_dir = sdk.native_root.parent()?;
+    sdk::COMPONENTS
+        .iter()
+        .all(|component| api_level_dir.join(component).is_dir())
+        .then(|| api_level_dir.parent())
+        .flatten()
+        .map(Path::to_path_buf)
 }
 
 fn wants_cargo_help(rest: &[OsString]) -> bool {

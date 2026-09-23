@@ -13,6 +13,34 @@ cargo ohos build -t aarch64 --release
 The SDK can also be discovered from `DEVECO_SDK_HOME` or the standard DevEco Studio installation location
 (currently only macOS)
 
+### Downloading the SDK
+
+`cargo-ohos` can download and cache the SDK from the
+[openharmony-rs/ohos-sdk](https://github.com/openharmony-rs/ohos-sdk) mirror:
+
+```sh
+cargo ohos init sdk --version=6.0.0.1
+```
+
+`--version` takes a full or prefix SDK version (`6.0.0` selects the newest `6.0.0.x`); an exact
+version always wins over a longer one.
+
+The archive is checked against the SHA-256 the mirror publishes next to it. By default
+every component the release ships is installed, because hvigor refuses to build unless they are
+all present. A cross-compile needs less: `--components native,toolchains` is enough for
+`cargo ohos build`, and skips about a gigabyte of `ets`, `js` and `previewer`.
+
+The components are unpacked as `<version>/<host>/<api level>/<component>`, the layout hvigor and
+DevEco Studio expect from an OpenHarmony SDK: point `DEVECO_SDK_HOME` at the `<host>` directory
+and an app build finds them. The mirror only publishes the OpenHarmony SDK, so a HarmonyOS build - which
+wants `default/openharmony` next to `default/hms` and an `sdk-pkg.json` - still needs the SDK from
+DevEco Studio or the HarmonyOS command line tools.
+
+The command prints how to persist the `OHOS_SDK_NATIVE` environment variable, so subsequent
+`cargo ohos` invocations find the SDK automatically. The downloaded SDK is cached under
+`~/.cache/cargo-ohos/ohos-sdk` on Linux, `~/Library/Caches/cargo-ohos/ohos-sdk` on macOS, and
+`%LOCALAPPDATA%\cargo-ohos\ohos-sdk` on Windows.
+
 ### Pre-set flags
 
 The cargo subcommands (`cargo ohos build`, ...) prepend their flags to any user-defined

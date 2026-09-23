@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3
+
+- Add `cargo ohos init sdk --version <VERSION>` to download and cache the OpenHarmony SDK from
+  the `openharmony-rs/ohos-sdk` mirror. The archive is checked against the SHA-256 the mirror
+  publishes next to it.
+  `--components` selects which SDK components to install and defaults to `all`, since hvigor
+  refuses to build unless every component is present; `--components native,toolchains` is enough
+  for a cross-compile and about a gigabyte smaller.
+
 ## 0.3.2
 
 - The JSON output has a new `runtime_libraries` array listing the toolchain libraries an
