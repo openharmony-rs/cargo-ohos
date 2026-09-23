@@ -1,4 +1,6 @@
+mod attestation;
 mod build_env;
+mod download;
 mod prebuilt;
 mod sdk;
 mod target;
