@@ -45,6 +45,8 @@ pub struct FakeSdk {
 pub struct SdkSpec {
     /// Part of the temporary directory name, e.g. to build an SDK in a path with a space.
     pub prefix: Option<&'static str>,
+    /// Where `native` goes, relative to the temporary directory. Defaults to `native`.
+    pub native_dir: Option<PathBuf>,
     pub api_version: Option<u32>,
     pub version: Option<String>,
     /// Omit `oh-uni-package.json` entirely.
@@ -78,7 +80,9 @@ impl FakeSdk {
 
     pub fn new(spec: SdkSpec) -> Self {
         let dir = TempDir::new(spec.prefix.unwrap_or("sdk"));
-        let native = dir.path().join("native");
+        let native = dir
+            .path()
+            .join(spec.native_dir.as_deref().unwrap_or(Path::new("native")));
         let llvm = native.join("llvm");
 
         for tool in TOOLS {
