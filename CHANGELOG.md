@@ -5,7 +5,7 @@
 - Add `cargo ohos init sdk --version <VERSION>` to download and cache the OpenHarmony SDK from
   the `openharmony-rs/ohos-sdk` mirror. The archive is checked against the SHA-256 the mirror
   publishes next to it, and against the mirror's build provenance attestation where there is one.
-  Releases after 7.0 must have one, so a missing attestation fails the install when `gh` can check.
+  Releases after 7.0 require attestation when `gh` is installed.
   `--components` selects which SDK components to install and defaults to `all`, since hvigor
   refuses to build unless every component is present; `--components native,toolchains` is enough
   for a cross-compile and about a gigabyte smaller.
