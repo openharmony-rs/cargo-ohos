@@ -296,19 +296,33 @@ pub fn remove_file_if_exists(path: &Path) -> Result<(), String> {
     }
 }
 
-/// The non-draft releases whose tag starts with `tag_prefix`, each with its
-/// version: the tag with the prefix removed.
-pub fn versions<'a>(
+/// Non-draft releases with tags starting with `tag_prefix`, newest version first, each
+/// with its version: the tag with the prefix removed.
+pub fn versions(
     releases: Vec<Release>,
-    tag_prefix: &'a str,
-) -> impl Iterator<Item = (Release, String)> + 'a {
-    releases
+    tag_prefix: &str,
+) -> impl Iterator<Item = (Release, String)> {
+    let mut versions: Vec<(Release, String)> = releases
         .into_iter()
         .filter(|release| !release.draft)
-        .filter_map(move |release| {
+        .filter_map(|release| {
             let version = release.tag_name.strip_prefix(tag_prefix)?.to_owned();
             Some((release, version))
         })
+        .collect();
+    versions.sort_by_cached_key(|(_, version)| std::cmp::Reverse(version_key(version)));
+    versions.into_iter()
+}
+
+/// The numbers `version` orders by: `19.1.4-79830f` is `[19, 1, 4]`.
+pub fn version_key(version: &str) -> Vec<u64> {
+    version
+        .split('-')
+        .next()
+        .unwrap_or_default()
+        .split('.')
+        .map(|part| part.parse().unwrap_or(0))
+        .collect()
 }
 
 /// The newest non-draft release whose version - the tag with `tag_prefix` removed -
@@ -374,6 +388,25 @@ mod tests {
         assert_eq!(release.tag_name, "v6.0.0.1");
 
         assert!(select_release(releases(), "v", "6.2").is_none());
+    }
+
+    #[test]
+    fn orders_releases_by_version_rather_than_by_listing() {
+        let releases = vec![
+            release("v5.0.3"),
+            release("v6.0"),
+            release("v7.0"),
+            release("v6.0.0.1"),
+            release("v5.0.10"),
+        ];
+        let order: Vec<String> = versions(releases, "v")
+            .map(|(_, version)| version)
+            .collect();
+        assert_eq!(order, ["7.0", "6.0.0.1", "6.0", "5.0.10", "5.0.3"]);
+
+        let (release, _) =
+            select_release(vec![release("v6.0"), release("v6.1")], "v", "6").unwrap();
+        assert_eq!(release.tag_name, "v6.1");
     }
 
     #[test]
