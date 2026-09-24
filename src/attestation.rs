@@ -44,7 +44,7 @@ fn available_with(
 }
 
 /// Whether `signer`'s repository published an attestation covering `digest`. Releases
-/// made before a mirror started attesting have none, and cannot be verified. Needs `gh`,
+/// made before the mirror started attesting have none, and cannot be verified. Needs `gh`,
 /// see `available`.
 pub fn is_attested(digest: &str, signer: &Signer) -> Result<bool, String> {
     is_attested_with(digest, signer, |command| command.output())
