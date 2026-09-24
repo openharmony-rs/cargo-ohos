@@ -65,8 +65,12 @@ jobs:
           mirror: true
       - name: Add hdc to PATH
         run: echo "$(dirname "${{ steps.sdk.outputs.ohos_sdk_native }}")/toolchains" >> "$GITHUB_PATH"
+      # Pinned in .github/ci-tools/Cargo.toml, where Dependabot proposes updates: an unpinned
+      # install picked up 0.1.6 and its new device layout unannounced.
       - name: Install ohos-test-runner
-        run: cargo install --locked ohos-test-runner
+        run: |
+          version=$(sed -n 's/^ohos-test-runner = "=\(.*\)"$/\1/p' .github/ci-tools/Cargo.toml)
+          cargo install --locked ohos-test-runner --version "${version:?not pinned in .github/ci-tools/Cargo.toml}"
       # Without it the emulator falls back to TCG, where ohos-test-runner's device lock
       # queues for tens of seconds.
       - name: Enable KVM
