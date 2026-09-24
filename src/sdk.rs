@@ -195,14 +195,10 @@ impl Sdk {
             .filter(|install_base| install_base.join(download::COMPLETE_MARKER).is_file())
             .filter_map(|install_base| Self::from_candidate(&install_base))
             .max_by_key(|sdk| {
-                let version: Vec<u32> = sdk
-                    .version
-                    .as_deref()
-                    .unwrap_or_default()
-                    .split('.')
-                    .map(|part| part.parse().unwrap_or(0))
-                    .collect();
-                (sdk.api_version, version)
+                (
+                    sdk.api_version,
+                    download::version_key(sdk.version.as_deref().unwrap_or_default()),
+                )
             })
     }
 
@@ -439,6 +435,10 @@ fn install(selection: &Selection, components: &Components) -> Result<PathBuf, St
         return Ok(installed);
     }
 
+    eprintln!(
+        "note: installing OpenHarmony SDK {} from `{}`",
+        selection.version, selection.archive_name
+    );
     let archive_path = root.join(format!(
         ".download-sdk-{}-{}.tar.gz",
         selection.version, selection.os_dir_name
@@ -838,10 +838,11 @@ mod tests {
 
     #[test]
     fn selects_the_newest_release_providing_an_api_level() {
+        // Not in version order, as GitHub may list them.
         let releases = vec![
+            release("v6.0", &[]),
             release("v7.0", &[]),
             release("v6.0.0.1", &[]),
-            release("v6.0", &[]),
         ];
 
         let (selected, version) = select_by_api(releases, 20).unwrap();
