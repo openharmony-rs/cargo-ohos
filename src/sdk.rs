@@ -355,6 +355,10 @@ fn select(
             release.tag_name, archive_name
         )
     })?;
+    // An archive published whole and split would otherwise be concatenated with its own parts.
+    if parts.len() > 1 {
+        parts.retain(|part| part.name != archive_name);
+    }
     parts.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Selection {
         version,
@@ -411,11 +415,16 @@ fn os_dir_name(os: &str) -> &'static str {
     }
 }
 
+/// Whether `name` is `archive_name` itself or one of the parts `split` cut it into,
+/// `<archive>.aa`, `<archive>.ab`, ...
 fn is_archive_part(name: &str, archive_name: &str) -> bool {
     name == archive_name
         || name
             .strip_prefix(archive_name)
-            .is_some_and(|suffix| suffix.starts_with('.') && suffix != ".sha256")
+            .and_then(|suffix| suffix.strip_prefix('.'))
+            .is_some_and(|suffix| {
+                suffix.len() == 2 && suffix.bytes().all(|b| b.is_ascii_lowercase())
+            })
 }
 
 fn install(selection: &Selection, components: &Components) -> Result<PathBuf, String> {
@@ -925,7 +934,11 @@ mod tests {
         assert!(is_archive_part(name, name));
         assert!(is_archive_part(&format!("{name}.aa"), name));
         assert!(is_archive_part(&format!("{name}.ab"), name));
+        assert!(is_archive_part(&format!("{name}.zz"), name));
         assert!(!is_archive_part(&format!("{name}.sha256"), name));
+        assert!(!is_archive_part(&format!("{name}.sig"), name));
+        assert!(!is_archive_part(&format!("{name}.sigstore.json"), name));
+        assert!(!is_archive_part(&format!("{name}.a"), name));
         assert!(!is_archive_part("other-archive.tar.gz", name));
     }
 
@@ -962,6 +975,34 @@ mod tests {
         assert_eq!(
             selection.sha256_asset.name,
             "ohos-sdk-windows_linux-public.tar.gz.sha256"
+        );
+    }
+
+    #[test]
+    fn ignores_the_whole_archive_next_to_its_parts() {
+        let releases = vec![release(
+            "v6.0",
+            &[
+                "ohos-sdk-windows_linux-public.tar.gz",
+                "ohos-sdk-windows_linux-public.tar.gz.aa",
+                "ohos-sdk-windows_linux-public.tar.gz.ab",
+                "ohos-sdk-windows_linux-public.tar.gz.sha256",
+                "ohos-sdk-windows_linux-public.tar.gz.sigstore.json",
+            ],
+        )];
+        let selection =
+            select(releases, &Request::Version("6.0".into()), "linux", "x86_64").unwrap();
+        let parts: Vec<_> = selection
+            .parts
+            .iter()
+            .map(|part| part.name.as_str())
+            .collect();
+        assert_eq!(
+            parts,
+            [
+                "ohos-sdk-windows_linux-public.tar.gz.aa",
+                "ohos-sdk-windows_linux-public.tar.gz.ab"
+            ]
         );
     }
 
