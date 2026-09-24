@@ -12,6 +12,14 @@ readme = "README.md"
 # directory stays out rather than only the parts the test sources read.
 exclude = ["tests"]
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{ version }/{ name }-{ target }{ archive-suffix }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 dunce = "1"
