@@ -365,6 +365,49 @@ fn the_generated_cmake_toolchain_file_configures_the_toolchain() {
     assert!(file.starts_with(target_dir.path()), "{}", file.display());
 }
 
+#[test]
+fn cmake_uses_the_sdk_ninja_unless_a_generator_is_set() {
+    let sdk = FakeSdk::complete();
+    let target_dir = TempDir::new("target-dir");
+    let env = |generator: Option<&str>| {
+        let mut command = CargoOhos::new()
+            .arg("env")
+            .args(["--target", "aarch64"])
+            .arg("--sdk")
+            .arg(sdk.native())
+            .env("CARGO_TARGET_DIR", target_dir.path());
+        if let Some(generator) = generator {
+            command = command.env("CMAKE_GENERATOR", generator);
+        }
+        command.run().success().env_map()
+    };
+
+    let env_default = env(None);
+    assert_eq!(
+        env_default["CMAKE_GENERATOR_aarch64_unknown_linux_ohos"],
+        "Ninja"
+    );
+    let contents =
+        std::fs::read_to_string(&env_default["CMAKE_TOOLCHAIN_FILE_aarch64_unknown_linux_ohos"])
+            .unwrap();
+    let ninja = sdk
+        .native()
+        .join("build-tools/cmake/bin")
+        .join(if cfg!(windows) { "ninja.exe" } else { "ninja" })
+        .to_string_lossy()
+        .replace('\\', "/");
+    assert!(
+        contents.contains(&format!("set(CMAKE_MAKE_PROGRAM \"{ninja}\"")),
+        "{contents}"
+    );
+
+    let env_user = env(Some("Unix Makefiles"));
+    assert!(
+        !env_user.contains_key("CMAKE_GENERATOR_aarch64_unknown_linux_ohos"),
+        "{env_user:#?}"
+    );
+}
+
 /// Rewriting the file on every invocation would invalidate every dependent cmake build.
 #[test]
 fn the_generated_cmake_toolchain_file_is_stable() {
@@ -674,6 +717,10 @@ mod errors {
 
         let env = env_with(&[], &sdk).success().env_map();
         assert!(!env.contains_key("CMAKE"), "{env:#?}");
+        assert!(
+            !env.contains_key("CMAKE_GENERATOR_aarch64_unknown_linux_ohos"),
+            "{env:#?}"
+        );
         assert!(
             !env.contains_key("CMAKE_TOOLCHAIN_FILE_aarch64_unknown_linux_ohos"),
             "{env:#?}"
