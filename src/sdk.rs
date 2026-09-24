@@ -83,6 +83,10 @@ const SIGNER: attestation::Signer = attestation::Signer {
     workflow: "openharmony-rs/ohos-sdk/.github/workflows/Release.yml",
 };
 
+/// The last release from before the mirror attested every archive it publishes. A later
+/// release without an attestation is not what the mirror's release workflow produces.
+const LAST_UNATTESTED_RELEASE: &str = "7.0";
+
 const SDK_RELEASES_URL: &str =
     "https://api.github.com/repos/openharmony-rs/ohos-sdk/releases?per_page=100";
 const SDK_CACHE_SUBDIR: &str = "ohos-sdk";
@@ -532,13 +536,19 @@ fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Resul
     })?;
 
     // The mirror attests the archive as published upstream, before it is split
-    // into release-sized parts. Releases made before it started doing so have
+    // into release-sized parts. Releases made before it started doing so may have
     // nothing to check. Asked before the download, so a failed query costs no
     // gigabytes.
     let verify_attestation = if !attestation::available()? {
         false
     } else if attestation::is_attested(&expected, &SIGNER)? {
         true
+    } else if requires_attestation(&selection.version) {
+        return Err(format!(
+            "release `v{}` has no build provenance attestation for `{}`, which every release \
+             after {LAST_UNATTESTED_RELEASE} must have",
+            selection.version, selection.archive_name
+        ));
     } else {
         eprintln!(
             "note: release `v{}` has no build provenance attestation for the whole archive",
@@ -556,6 +566,10 @@ fn fetch_and_verify_archive(selection: &Selection, archive_path: &Path) -> Resul
         )?;
     }
     Ok(())
+}
+
+fn requires_attestation(version: &str) -> bool {
+    download::version_key(version) > download::version_key(LAST_UNATTESTED_RELEASE)
 }
 
 /// Unpack only the component archives of the host we are installing for into
@@ -851,6 +865,16 @@ mod tests {
 
         let error = select_by_api(vec![release("v6.1", &[])], 19).unwrap_err();
         assert!(error.contains("the mirror has 23"), "{error}");
+    }
+
+    #[test]
+    fn releases_after_7_0_must_be_attested() {
+        for version in ["4.0", "6.0.0.1", "6.1", "7.0"] {
+            assert!(!requires_attestation(version), "{version}");
+        }
+        for version in ["7.0.0.1", "7.1", "8.0"] {
+            assert!(requires_attestation(version), "{version}");
+        }
     }
 
     #[test]

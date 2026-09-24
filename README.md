@@ -33,9 +33,10 @@ The API level of a release is read from a `API version: <level>` line in its rel
 falls back to a table of the releases published before the mirror started declaring it. A new SDK
 therefore works with `--api` without a cargo-ohos release.
 
-The archive is checked against the SHA-256 the mirror publishes next to it, and, where the mirror
-attested the archive, against that attestation via `gh attestation verify` - as `--download-prebuilt`
-does. Releases made before the mirror started attesting say so and are checksum-only. By default
+The archive is checked against the SHA-256 the mirror publishes next to it, and, when the `gh` CLI
+is installed and authenticated, against the mirror's build provenance attestation via
+`gh attestation verify` - as `--download-prebuilt` does. Every release after 7.0 must carry one;
+older releases without one say so and are checksum-only. By default
 every component the release ships is installed, because hvigor refuses to build unless they are
 all present. A cross-compile needs less: `--components native,toolchains` is enough for
 `cargo ohos build`, and skips about a gigabyte of `ets`, `js` and `previewer`.

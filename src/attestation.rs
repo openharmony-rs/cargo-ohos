@@ -4,8 +4,6 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
-use crate::download;
-
 /// The workflow allowed to have produced an artifact.
 pub struct Signer {
     pub repository: &'static str,
@@ -45,12 +43,38 @@ fn available_with(
     Ok(auth_output.status.success())
 }
 
-/// Whether `repository` published an attestation covering `digest`. Releases made
-/// before a mirror started attesting have none, and cannot be verified.
+/// Whether `signer`'s repository published an attestation covering `digest`. Releases
+/// made before a mirror started attesting have none, and cannot be verified. Asked
+/// through `gh`, so that the request carries the user's GitHub login rather than
+/// counting against the anonymous rate limit. Needs `gh`, see `available`.
 pub fn is_attested(digest: &str, signer: &Signer) -> Result<bool, String> {
-    download::exists(&format!(
-        "https://api.github.com/repos/{}/attestations/sha256:{digest}",
-        signer.repository
+    is_attested_with(digest, signer, |command| command.output())
+}
+
+fn is_attested_with(
+    digest: &str,
+    signer: &Signer,
+    mut run: impl FnMut(&mut Command) -> std::io::Result<Output>,
+) -> Result<bool, String> {
+    let output = run(Command::new("gh")
+        .arg("api")
+        .arg(format!(
+            "repos/{}/attestations/sha256:{digest}",
+            signer.repository
+        ))
+        .arg("--silent"))
+    .map_err(|error| format!("could not run `gh api`: {error}"))?;
+    if output.status.success() {
+        return Ok(true);
+    }
+    // `gh api` fails the same way for every HTTP error, and names the status on stderr.
+    if String::from_utf8_lossy(&output.stderr).contains("(HTTP 404)") {
+        return Ok(false);
+    }
+    Err(with_command_output(
+        format!("could not look up the attestations of sha256:{digest}"),
+        &output.stdout,
+        &output.stderr,
     ))
 }
 
@@ -136,6 +160,46 @@ mod tests {
             Ok(false)
         );
         assert!(available_with(|_| Err(std::io::ErrorKind::PermissionDenied.into())).is_err());
+    }
+
+    #[test]
+    fn looks_up_attestations_through_gh() {
+        let signer = Signer {
+            repository: "openharmony-rs/ohos-sdk",
+            workflow: "openharmony-rs/ohos-sdk/.github/workflows/Release.yml",
+        };
+        let answer = |code: u8, stderr: &str| {
+            let stderr = stderr.as_bytes().to_vec();
+            move |command: &mut Command| {
+                let args: Vec<_> = command.get_args().collect();
+                assert_eq!(
+                    args,
+                    [
+                        "api",
+                        "repos/openharmony-rs/ohos-sdk/attestations/sha256:abc",
+                        "--silent"
+                    ]
+                );
+                Ok(Output {
+                    status: exit_status(code),
+                    stdout: Vec::new(),
+                    stderr: stderr.clone(),
+                })
+            }
+        };
+
+        assert_eq!(is_attested_with("abc", &signer, answer(0, "")), Ok(true));
+        assert_eq!(
+            is_attested_with("abc", &signer, answer(1, "gh: Not Found (HTTP 404)\n")),
+            Ok(false)
+        );
+        let error = is_attested_with(
+            "abc",
+            &signer,
+            answer(1, "gh: API rate limit exceeded (HTTP 403)\n"),
+        )
+        .unwrap_err();
+        assert!(error.contains("HTTP 403"), "{error}");
     }
 
     #[test]
