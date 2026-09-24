@@ -410,11 +410,16 @@ fn os_dir_name(os: &str) -> &'static str {
     }
 }
 
+/// Whether `name` is `archive_name` itself or one of the parts `split` cut it into,
+/// `<archive>.aa`, `<archive>.ab`, ...
 fn is_archive_part(name: &str, archive_name: &str) -> bool {
     name == archive_name
         || name
             .strip_prefix(archive_name)
-            .is_some_and(|suffix| suffix.starts_with('.') && suffix != ".sha256")
+            .and_then(|suffix| suffix.strip_prefix('.'))
+            .is_some_and(|suffix| {
+                suffix.len() == 2 && suffix.bytes().all(|b| b.is_ascii_lowercase())
+            })
 }
 
 fn install(selection: &Selection, components: &Components) -> Result<PathBuf, String> {
@@ -921,7 +926,11 @@ mod tests {
         assert!(is_archive_part(name, name));
         assert!(is_archive_part(&format!("{name}.aa"), name));
         assert!(is_archive_part(&format!("{name}.ab"), name));
+        assert!(is_archive_part(&format!("{name}.zz"), name));
         assert!(!is_archive_part(&format!("{name}.sha256"), name));
+        assert!(!is_archive_part(&format!("{name}.sig"), name));
+        assert!(!is_archive_part(&format!("{name}.sigstore.json"), name));
+        assert!(!is_archive_part(&format!("{name}.a"), name));
         assert!(!is_archive_part("other-archive.tar.gz", name));
     }
 
