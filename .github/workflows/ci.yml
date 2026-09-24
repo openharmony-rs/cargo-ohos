@@ -65,8 +65,14 @@ jobs:
           mirror: true
       - name: Add hdc to PATH
         run: echo "$(dirname "${{ steps.sdk.outputs.ohos_sdk_native }}")/toolchains" >> "$GITHUB_PATH"
+      - uses: taiki-e/install-action@cargo-binstall
       - name: Install ohos-test-runner
-        run: cargo install --locked ohos-test-runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^ohos-test-runner = "=\(.*\)"$/\1/p' .github/ci-tools/Cargo.toml)
+          cargo binstall --no-confirm --disable-strategies quick-install,compile \
+            ohos-test-runner --version "${version:?not pinned in .github/ci-tools/Cargo.toml}"
       # Without it the emulator falls back to TCG, where ohos-test-runner's device lock
       # queues for tens of seconds.
       - name: Enable KVM

@@ -1,0 +1,13 @@
+# The tools CI installs, pinned here so that Dependabot proposes their updates. Nothing
+# builds this package; CI reads the versions from it.
+[package]
+name = "ci-tools"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+ohos-test-runner = "=0.1.6"
