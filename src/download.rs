@@ -296,9 +296,8 @@ pub fn remove_file_if_exists(path: &Path) -> Result<(), String> {
     }
 }
 
-/// The non-draft releases whose tag starts with `tag_prefix`, newest version first, each
-/// with its version: the tag with the prefix removed. GitHub's own order is no guide: most of
-/// the SDK mirror's releases share one creation date.
+/// Non-draft releases with tags starting with `tag_prefix`, newest version first, each
+/// with its version: the tag with the prefix removed.
 pub fn versions(
     releases: Vec<Release>,
     tag_prefix: &str,
