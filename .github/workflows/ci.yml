@@ -28,8 +28,8 @@ jobs:
       - run: just test
 
   # The fixture projects in tests/projects, cross-compiled and - where a device of the
-  # target's architecture is attached - run on it. The only difference between the entries
-  # is which device the runner can reach; the tests match cases to devices themselves.
+  # target's architecture is attached - run on it. The entries differ in the host and in
+  # which device the runner can reach; the tests match cases to devices themselves.
   matrix:
     name: fixtures (${{ matrix.name }})
     strategy:
@@ -41,32 +41,46 @@ jobs:
             emulator: true
             # The emulator is x86_64; the other targets are built and inspected only.
             require_device_arches: x86_64
+          - name: macos
+            runs-on: macos-latest
+          - name: windows
+            runs-on: windows-latest
           # Add a board here once it is wired up to a self-hosted runner, e.g.
           # - name: dayu200
           #   runs-on: [self-hosted, dayu200]
           #   emulator: false
           #   require_device_arches: aarch64
     runs-on: ${{ matrix.runs-on }}
-    env:
-      TARGETS: aarch64-unknown-linux-ohos,armv7-unknown-linux-ohos,x86_64-unknown-linux-ohos
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ env.TARGETS }}
+          # Not through a job `env` named TARGETS: Windows environment names ignore case, so
+          # that would hide the action's own `targets` from its bash script.
+          targets: aarch64-unknown-linux-ohos,armv7-unknown-linux-ohos,x86_64-unknown-linux-ohos
       - uses: taiki-e/install-action@just
-      - name: Setup OpenHarmony SDK
-        id: sdk
-        uses: openharmony-rs/setup-ohos-sdk@v1
-        with:
-          version: "6.1"
-          # native = clang + sysroot + cmake, toolchains = hdc.
-          components: "native;toolchains"
-          mirror: true
+      - name: Download the OpenHarmony SDK
+        env:
+          # For cargo-ohos and `gh` alike: lifts GitHub's anonymous rate limit, and lets `gh`
+          # look up the archive's attestation.
+          GITHUB_TOKEN: ${{ github.token }}
+        # native = clang + sysroot + cmake, toolchains = hdc.
+        run: cargo run --locked -- ohos init sdk --version 6.1 --components native,toolchains
+      # `-j` rather than `-r`, as jq on Windows would end the line with a CR.
       - name: Add hdc to PATH
-        run: echo "$(dirname "${{ steps.sdk.outputs.ohos_sdk_native }}")/toolchains" >> "$GITHUB_PATH"
-      - uses: taiki-e/install-action@cargo-binstall
+        id: sdk
+        run: |
+          native=$(cargo run --locked -q -- ohos env --format json | jq -j .sdk.native_root)
+          echo "${native%native}toolchains" >> "$GITHUB_PATH"
+          echo "native=$native" >> "$GITHUB_OUTPUT"
+      # Only needed to run on a device.
+      - if: matrix.require_device_arches
+        uses: taiki-e/install-action@cargo-binstall
       - name: Install ohos-test-runner
+        if: matrix.require_device_arches
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -90,7 +104,7 @@ jobs:
       - name: Run the fixture matrix
         run: just test-matrix -- --test-threads=4
         env:
-          CARGO_OHOS_TEST_SDK: ${{ steps.sdk.outputs.ohos_sdk_native }}
+          CARGO_OHOS_TEST_SDK: ${{ steps.sdk.outputs.native }}
           # Missing prerequisites and unreachable devices fail the job instead of skipping.
           CARGO_OHOS_TEST_REQUIRE: "1"
           CARGO_OHOS_TEST_REQUIRE_DEVICE_ARCHES: ${{ matrix.require_device_arches }}
