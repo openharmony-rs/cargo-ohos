@@ -67,6 +67,13 @@ cargo-ohos sets the `TARGET_`/triple-suffixed one. A warning is printed when thi
 Note: Triple-specific variables such as `CFLAGS_aarch64_unknown_linux_ohos` outrank `TARGET_CFLAGS`
 in cc-rs and completely replace the flags from cargo-ohos.
 
+### CMake
+
+cmake-rs builds use the SDK's CMake with the Ninja it ships alongside: `cargo ohos` sets
+`CMAKE_GENERATOR_<triple>=Ninja` and points the generated toolchain file at the SDK's `ninja`.
+A generator chosen through `CMAKE_GENERATOR`, `TARGET_CMAKE_GENERATOR` or
+`CMAKE_GENERATOR_<triple>` is left alone.
+
 ### Prebuilt LLVM toolchains
 
 It's generally recommend to use the LLVM toolchain bundled with the OpenHarmony SDK.

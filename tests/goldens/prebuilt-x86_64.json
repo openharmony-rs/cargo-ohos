@@ -14,6 +14,7 @@
     "CMAKE": "$SDK/build-tools/cmake/bin/cmake",
     "CMAKE_CXX_COMPILER_x86_64_unknown_linux_ohos": "$LLVM/bin/clang++",
     "CMAKE_C_COMPILER_x86_64_unknown_linux_ohos": "$LLVM/bin/clang",
+    "CMAKE_GENERATOR_x86_64_unknown_linux_ohos": "Ninja",
     "CMAKE_TOOLCHAIN_FILE_x86_64_unknown_linux_ohos": "$TARGET_DIR/ohos-toolchain/x86_64-linux-ohos-<key>/ohos.toolchain.cmake",
     "CXXSTDLIB_x86_64_unknown_linux_ohos": "c++",
     "CXX_x86_64-unknown-linux-ohos": "$LLVM/bin/clang++ --target=x86_64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -Wno-unused-command-line-argument",
@@ -72,6 +73,7 @@
     "llvm_bin": "$SDK/llvm/bin",
     "llvm_root": "$SDK/llvm",
     "native_root": "$SDK",
+    "ninja": "$SDK/build-tools/cmake/bin/ninja",
     "sysroot": "$SDK/sysroot",
     "version": "6.0.1.112"
   },

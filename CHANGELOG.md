@@ -14,6 +14,12 @@
   notes where the mirror declares one, and from a built-in table for the older releases.
 - SDK discovery falls back to the newest SDK downloaded by `cargo ohos init sdk` when neither
   `--sdk` nor any of the SDK environment variables is set.
+- cmake-rs builds use the Ninja the SDK ships next to its CMake, unless a `CMAKE_GENERATOR`
+  variable is set. On Windows, CMake otherwise fell back to NMake, which only a Visual Studio
+  developer shell provides. The `sdk` JSON object gained `ninja`. CMake refuses to switch the
+  generator of an existing build directory, so a crate whose build script re-runs in a directory
+  configured before needs a `cargo clean -p <crate>` once; `CMAKE_GENERATOR="Unix Makefiles"`
+  keeps the previous behavior.
 
 ## 0.3.2
 
