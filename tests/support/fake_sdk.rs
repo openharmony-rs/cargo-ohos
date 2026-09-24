@@ -36,7 +36,10 @@ const LIBCLANG: &str = if cfg!(windows) {
 };
 
 pub struct FakeSdk {
-    dir: TempDir,
+    /// The SDK's own temporary directory, removed on drop. `None` when the SDK was built
+    /// somewhere the caller cleans up.
+    _dir: Option<TempDir>,
+    root: PathBuf,
     native: PathBuf,
 }
 
@@ -78,7 +81,16 @@ impl FakeSdk {
 
     pub fn new(spec: SdkSpec) -> Self {
         let dir = TempDir::new(spec.prefix.unwrap_or("sdk"));
-        let native = dir.path().join("native");
+        let sdk = Self::new_at(spec, dir.path());
+        Self {
+            _dir: Some(dir),
+            ..sdk
+        }
+    }
+
+    /// An SDK built into `root`, the directory that holds its components.
+    pub fn new_at(spec: SdkSpec, root: &Path) -> Self {
+        let native = root.join("native");
         let llvm = native.join("llvm");
 
         for tool in TOOLS {
@@ -159,7 +171,12 @@ impl FakeSdk {
         }
 
         let native = dunce::canonicalize(native).expect("canonicalize the fake SDK");
-        Self { dir, native }
+        let root = dunce::canonicalize(root).expect("canonicalize the fake SDK");
+        Self {
+            _dir: None,
+            root,
+            native,
+        }
     }
 
     /// The `native` directory, i.e. what `--sdk` takes.
@@ -168,7 +185,7 @@ impl FakeSdk {
     }
 
     pub fn root(&self) -> &Path {
-        self.dir.path()
+        &self.root
     }
 
     pub fn llvm(&self) -> PathBuf {
