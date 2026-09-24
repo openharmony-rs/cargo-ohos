@@ -55,7 +55,7 @@ pub const COMPONENTS: &[&str] = &["ets", "js", "native", "previewer", "toolchain
 pub const ALL_COMPONENTS: &str = "all";
 
 /// Which SDK components to install.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Components {
     All,
     Only(BTreeSet<String>),
@@ -74,6 +74,24 @@ impl Components {
         match self {
             Self::All => true,
             Self::Only(names) => names.contains(name),
+        }
+    }
+
+    /// Whether these components include every one `other` asks for.
+    fn covers(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::All, _) => true,
+            (Self::Only(_), Self::All) => false,
+            (Self::Only(names), Self::Only(wanted)) => wanted.is_subset(names),
+        }
+    }
+
+    fn union(&self, other: &Self) -> Self {
+        match (self, other) {
+            (Self::Only(names), Self::Only(more)) => {
+                Self::Only(names.union(more).cloned().collect())
+            }
+            _ => Self::All,
         }
     }
 }
@@ -433,15 +451,19 @@ fn install(selection: &Selection, components: &Components) -> Result<PathBuf, St
     )))?;
 
     let install_base = root.join(&selection.version).join(selection.os_dir_name);
-    let marker = selection_marker(selection, components);
-    if let Some(installed) = existing_install(&install_base, &marker) {
-        eprintln!(
-            "note: using cached OpenHarmony SDK {} from {}",
-            selection.version,
-            installed.display()
-        );
-        return Ok(installed);
-    }
+    let components = match existing_install(&install_base, selection) {
+        Some((installed, dir)) if installed.covers(components) => {
+            eprintln!(
+                "note: OpenHarmony SDK {} with the requested components is already installed at {}",
+                selection.version,
+                dir.display()
+            );
+            return Ok(dir);
+        }
+        Some((installed, _)) => installed.union(components),
+        None => components.clone(),
+    };
+    let marker = selection_marker(selection, &components);
 
     eprintln!("note: installing OpenHarmony SDK {}", selection.version);
     let archive_path = root.join(format!(
@@ -459,7 +481,7 @@ fn install(selection: &Selection, components: &Components) -> Result<PathBuf, St
         fetch_and_verify_archive(selection, &archive_path)?;
         std::fs::create_dir(&staging)
             .map_err(|e| format!("could not create {}: {e}", staging.display()))?;
-        extract_host_components(&archive_path, &staging, selection, components)?;
+        extract_host_components(&archive_path, &staging, selection, &components)?;
         download::remove_file_if_exists(&archive_path)?;
         let api_version = extract_components(&staging)?;
 
@@ -487,35 +509,43 @@ fn install(selection: &Selection, components: &Components) -> Result<PathBuf, St
     result
 }
 
-/// The API level directory of a completed install of exactly `marker`.
-fn existing_install(install_base: &Path, marker: &str) -> Option<PathBuf> {
-    if std::fs::read_to_string(install_base.join(download::COMPLETE_MARKER))
-        .ok()
-        .as_deref()
-        != Some(marker)
-    {
-        return None;
-    }
-    std::fs::read_dir(install_base)
+/// The components a completed install of `selection` holds, and its API level directory.
+fn existing_install(install_base: &Path, selection: &Selection) -> Option<(Components, PathBuf)> {
+    let marker = std::fs::read_to_string(install_base.join(download::COMPLETE_MARKER)).ok()?;
+    let names = marker
+        .strip_prefix(&release_marker(selection))?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let dir = std::fs::read_dir(install_base)
         .ok()?
         .flatten()
         .map(|entry| entry.path())
-        .find(|path| path.is_dir())
+        .find(|path| path.is_dir())?;
+    Some((Components::new(names), dir))
 }
 
-fn selection_marker(selection: &Selection, components: &Components) -> String {
+/// The lines of a marker that name the release. They end with a blank line, so that a
+/// release with fewer parts is not a prefix of them.
+fn release_marker(selection: &Selection) -> String {
     let mut marker = format!("{}\n{}\n", selection.version, selection.archive_name);
-    let components: Vec<&str> = match components {
+    for part in &selection.parts {
+        marker.push_str(&part.name);
+        marker.push('\n');
+    }
+    marker.push('\n');
+    marker
+}
+
+/// The marker of a completed install: its release, then the components it holds.
+fn selection_marker(selection: &Selection, components: &Components) -> String {
+    let mut marker = release_marker(selection);
+    let names: Vec<&str> = match components {
         Components::All => vec![ALL_COMPONENTS],
         Components::Only(names) => names.iter().map(String::as_str).collect(),
     };
-    for line in selection
-        .parts
-        .iter()
-        .map(|part| part.name.as_str())
-        .chain(components)
-    {
-        marker.push_str(line);
+    for name in names {
+        marker.push_str(name);
         marker.push('\n');
     }
     marker
@@ -983,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn the_cache_is_reused_only_for_an_identical_request() {
+    fn the_cache_is_reused_when_it_holds_the_requested_components() {
         let parts = [
             "ohos-sdk-windows_linux-public.tar.gz.aa",
             "ohos-sdk-windows_linux-public.tar.gz.ab",
@@ -1000,38 +1030,42 @@ mod tests {
             |names: &[&str]| Components::new(names.iter().map(|name| name.to_string()).collect());
         let all = Components::All;
         let narrow = components(&["native", "toolchains"]);
+        assert_eq!(components(&["native", ALL_COMPONENTS]), Components::All);
 
-        // An install made with the narrow set, as `--components native,toolchains` leaves it.
         let root = TestDir::new();
         let install_base = root.0.join("6.0").join("linux");
         std::fs::create_dir_all(install_base.join("20").join("native")).unwrap();
-        std::fs::write(
-            install_base.join(download::COMPLETE_MARKER),
-            selection_marker(&selection, &narrow),
-        )
-        .unwrap();
+        let installed = |components: &Components| {
+            std::fs::write(
+                install_base.join(download::COMPLETE_MARKER),
+                selection_marker(&selection, components),
+            )
+            .unwrap();
+            existing_install(&install_base, &selection).map(|(installed, dir)| {
+                assert_eq!(dir, install_base.join("20"));
+                installed
+            })
+        };
 
-        assert_eq!(
-            existing_install(&install_base, &selection_marker(&selection, &narrow)),
-            Some(install_base.join("20")),
-            "the same request should be served from the cache"
-        );
-        assert_eq!(
-            existing_install(
-                &install_base,
-                &selection_marker(&selection, &components(&["toolchains", "native", "native"]))
-            ),
-            Some(install_base.join("20")),
-            "the order and repetition of the components should not matter"
-        );
-        assert_eq!(components(&["native", ALL_COMPONENTS]), Components::All);
+        // An install made with `--components native,toolchains` serves that and any subset,
+        // in any order, but not a request for every component.
+        let narrow_install = installed(&narrow).unwrap();
+        assert!(narrow_install.covers(&components(&["toolchains", "native", "native"])));
+        assert!(narrow_install.covers(&components(&["native"])));
+        assert!(!narrow_install.covers(&components(&["native", "ets"])));
+        assert!(!narrow_install.covers(&all));
 
-        // The direction that matters now that `all` is the default: a narrow install must not
-        // satisfy a request for every component, or hvigor fails on the missing ones later.
+        // A full install serves every request.
+        let full_install = installed(&all).unwrap();
+        assert!(full_install.covers(&narrow));
+        assert!(full_install.covers(&all));
+
+        // A reinstall adds to what is there rather than narrowing it.
         assert_eq!(
-            existing_install(&install_base, &selection_marker(&selection, &all)),
-            None
+            narrow.union(&components(&["native", "ets"])),
+            components(&["ets", "native", "toolchains"])
         );
+        assert_eq!(narrow.union(&all), Components::All);
 
         // A release re-published under the same tag with different assets is a different install.
         let republished = select(
@@ -1041,17 +1075,11 @@ mod tests {
             "x86_64",
         )
         .unwrap();
-        assert_eq!(
-            existing_install(&install_base, &selection_marker(&republished, &narrow)),
-            None
-        );
+        assert!(existing_install(&install_base, &republished).is_none());
 
         // An interrupted install leaves the tree but no marker.
         std::fs::remove_file(install_base.join(download::COMPLETE_MARKER)).unwrap();
-        assert_eq!(
-            existing_install(&install_base, &selection_marker(&selection, &narrow)),
-            None
-        );
+        assert!(existing_install(&install_base, &selection).is_none());
     }
 
     #[test]
