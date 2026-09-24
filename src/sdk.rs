@@ -12,6 +12,8 @@ pub struct Sdk {
     pub llvm_root: PathBuf,
     pub llvm_bin: PathBuf,
     pub cmake: Option<PathBuf>,
+    /// The Ninja next to `cmake`.
+    pub ninja: Option<PathBuf>,
     pub cmake_toolchain_file: Option<PathBuf>,
     /// `apiVersion` from `oh-uni-package.json`, e.g. `21`.
     pub api_version: Option<u32>,
@@ -305,11 +307,9 @@ impl Sdk {
             return None;
         }
 
-        let cmake = exe(&native_root
-            .join("build-tools")
-            .join("cmake")
-            .join("bin")
-            .join("cmake"));
+        let cmake_bin = native_root.join("build-tools").join("cmake").join("bin");
+        let cmake = exe(&cmake_bin.join("cmake"));
+        let ninja = exe(&cmake_bin.join("ninja"));
         let cmake_toolchain_file = native_root
             .join("build")
             .join("cmake")
@@ -321,6 +321,7 @@ impl Sdk {
             llvm_bin,
             llvm_root,
             cmake,
+            ninja,
             cmake_toolchain_file: cmake_toolchain_file
                 .is_file()
                 .then_some(cmake_toolchain_file),

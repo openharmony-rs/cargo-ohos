@@ -888,6 +888,7 @@ mod tests {
             llvm_root: PathBuf::from("/sdk/native/llvm"),
             llvm_bin: PathBuf::from("/sdk/native/llvm/bin"),
             cmake: None,
+            ninja: None,
             cmake_toolchain_file: None,
             api_version,
             version: None,

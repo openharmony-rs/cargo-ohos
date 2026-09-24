@@ -3,17 +3,19 @@
 ## 0.3.3
 
 - Add `cargo ohos init sdk --version <VERSION>` to download and cache the OpenHarmony SDK from
-  the `openharmony-rs/ohos-sdk` mirror. The archive is checked against the SHA-256 the mirror
-  publishes next to it, and against the mirror's build provenance attestation where there is one.
+  the `openharmony-rs/ohos-sdk` mirror. The archive is checked against published sha256 checksum, and against the mirror's build provenance attestation (requires `gh`).
   Releases after 7.0 require attestation when `gh` is installed.
   `--components` selects which SDK components to install and defaults to `all`, since hvigor
   refuses to build unless every component is present; `--components native,toolchains` is enough
   for a cross-compile and about a gigabyte smaller.
   The SDK can also be selected by OpenHarmony API level with `--api`, and `--list` prints the
-  versions the mirror publishes. The API level comes from an `API version:` line in the release
-  notes where the mirror declares one, and from a built-in table for the older releases.
+  versions the mirror publishes.
 - SDK discovery falls back to the newest SDK downloaded by `cargo ohos init sdk` when neither
   `--sdk` nor any of the SDK environment variables is set.
+- cmake-rs builds now use Ninja (from the SDK), unless the `CMAKE_GENERATOR`
+  variable is set.
+  The `sdk` JSON object gained `ninja`.
+  Users may need to `cargo clean` once after upgrading.
 
 ## 0.3.2
 

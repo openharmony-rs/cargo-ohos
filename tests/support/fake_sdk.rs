@@ -136,13 +136,9 @@ impl FakeSdk {
         );
 
         if !spec.without_cmake {
-            touch_exe(
-                &native
-                    .join("build-tools")
-                    .join("cmake")
-                    .join("bin")
-                    .join("cmake"),
-            );
+            let bin = native.join("build-tools").join("cmake").join("bin");
+            touch_exe(&bin.join("cmake"));
+            touch_exe(&bin.join("ninja"));
         }
         if !spec.without_cmake_toolchain_file {
             write(

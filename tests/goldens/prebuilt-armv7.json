@@ -14,6 +14,7 @@
     "CMAKE": "$SDK/build-tools/cmake/bin/cmake",
     "CMAKE_CXX_COMPILER_armv7_unknown_linux_ohos": "$LLVM/bin/clang++",
     "CMAKE_C_COMPILER_armv7_unknown_linux_ohos": "$LLVM/bin/clang",
+    "CMAKE_GENERATOR_armv7_unknown_linux_ohos": "Ninja",
     "CMAKE_TOOLCHAIN_FILE_armv7_unknown_linux_ohos": "$TARGET_DIR/ohos-toolchain/armv7-linux-ohos-<key>/ohos.toolchain.cmake",
     "CXXSTDLIB_armv7_unknown_linux_ohos": "c++",
     "CXX_armv7-unknown-linux-ohos": "$LLVM/bin/clang++ --target=armv7-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__ -march=armv7-a -mfloat-abi=softfp -mtune=generic-armv7-a -mthumb -Wno-unused-command-line-argument",
@@ -88,6 +89,7 @@
     "llvm_bin": "$SDK/llvm/bin",
     "llvm_root": "$SDK/llvm",
     "native_root": "$SDK",
+    "ninja": "$SDK/build-tools/cmake/bin/ninja",
     "sysroot": "$SDK/sysroot",
     "version": "6.0.1.112"
   },
