@@ -35,8 +35,7 @@ therefore works with `--api` without a cargo-ohos release.
 
 The archive is checked against the SHA-256 the mirror publishes next to it, and, when the `gh` CLI
 is installed and authenticated, against the mirror's build provenance attestation via
-`gh attestation verify` - as `--download-prebuilt` does. Every release after 7.0 must carry one;
-older releases without one say so and are checksum-only. By default
+`gh attestation verify`. This is available for SDK releases 7.0 and newer.
 every component the release ships is installed, because hvigor refuses to build unless they are
 all present. A cross-compile needs less: `--components native,toolchains` is enough for
 `cargo ohos build`, and skips about a gigabyte of `ets`, `js` and `previewer`.
