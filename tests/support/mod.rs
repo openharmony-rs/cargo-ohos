@@ -93,6 +93,13 @@ impl CargoOhos {
         for key in SCRUBBED {
             command.env_remove(key);
         }
+        // SDK discovery falls back to the SDKs `init sdk` downloaded into the user's cache, so
+        // keep that out of reach. The directory outlives the run, so that the prebuilt toolchain
+        // the matrix tests download is still reused.
+        command.env(
+            "XDG_CACHE_HOME",
+            Path::new(env!("CARGO_TARGET_TMPDIR")).join("cache"),
+        );
         // Cargo invokes the subcommand as `cargo-ohos ohos <args>`.
         command.arg("ohos");
         Self { command }

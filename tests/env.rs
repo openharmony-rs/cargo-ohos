@@ -468,6 +468,44 @@ mod discovery {
             "$OHOS_SDK_NATIVE = ",
         ]);
     }
+
+    #[test]
+    fn a_downloaded_sdk_is_used_when_nothing_is_configured() {
+        #[cfg(target_os = "macos")]
+        if Path::new("/Applications/DevEco-Studio.app/Contents/sdk").is_dir() {
+            eprintln!("SKIP a_downloaded_sdk_is_used_when_nothing_is_configured: default DevEco SDK is installed");
+            return;
+        }
+
+        let host = match std::env::consts::OS {
+            "macos" => "darwin",
+            "windows" => "windows",
+            _ => "linux",
+        };
+        // The layout `init sdk` leaves in the cache.
+        let install = Path::new("cargo-ohos")
+            .join("ohos-sdk")
+            .join("6.1")
+            .join(host);
+        let cache = SdkSpec {
+            native_dir: Some(install.join("21").join("native")),
+            ..SdkSpec::complete()
+        }
+        .build();
+        std::fs::write(cache.root().join(&install).join(".cargo-ohos-complete"), "").unwrap();
+
+        let json = env_from("XDG_CACHE_HOME", cache.root()).success().json();
+        assert_eq!(
+            Path::new(json["sdk"]["native_root"].as_str().unwrap()),
+            cache.native()
+        );
+
+        let empty = TempDir::new("empty-cache");
+        env_from("XDG_CACHE_HOME", empty.path()).fails_with(&[
+            "Could not find the OpenHarmony native SDK",
+            "no SDK downloaded into",
+        ]);
+    }
 }
 
 mod errors {
