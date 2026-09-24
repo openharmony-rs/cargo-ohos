@@ -1,0 +1,41 @@
+# `cargo ohos init sdk` end to end on every host OS: download a release from the SDK mirror,
+# verify and unpack it, and build a fixture against it through the cache fallback. Each run
+# downloads a few GB, so only when the code that does it changes.
+name: init sdk
+
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "Cargo.*", ".github/workflows/init-sdk.yml"]
+  pull_request:
+    paths: ["src/**", "Cargo.*", ".github/workflows/init-sdk.yml"]
+
+jobs:
+  init-sdk:
+    name: init sdk (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Lets `gh` verify the archive's attestation, and lifts GitHub's anonymous rate limit.
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-ohos
+      - run: cargo install --locked --debug --path .
+      - name: List the mirror's releases
+        run: cargo ohos init sdk --list
+      # 7.0: the macOS archives are attested as a whole, the Linux and Windows one is split.
+      - name: Install the SDK
+        run: cargo ohos init sdk --version 7.0 --components native
+      - name: Build a fixture with the downloaded SDK
+        working-directory: tests/projects/rust-only
+        run: cargo ohos build --target aarch64
