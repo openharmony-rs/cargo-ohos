@@ -390,7 +390,16 @@ fn print_sdk_instructions(sdk: &sdk::Sdk) {
     }
     println!("  {native}");
     println!();
-    println!("cargo-ohos will pick this up on its own. To point other tools at it:");
+    let selected = sdk::Sdk::discover(None).ok();
+    println!(
+        "{}",
+        selection_note(
+            &sdk.native_root,
+            selected
+                .as_ref()
+                .map(|selected| selected.native_root.as_path())
+        )
+    );
     print_env_hint("OHOS_SDK_NATIVE", &sdk.native_root);
     if let Some(root) = deveco_sdk_home(sdk) {
         println!();
@@ -400,6 +409,23 @@ fn print_sdk_instructions(sdk: &sdk::Sdk) {
     println!();
     println!("Or pass it on each invocation with:");
     println!("  cargo ohos build --sdk \"{native}\"");
+}
+
+/// Whether cargo-ohos will use the new SDK at `installed` on its own, given the SDK it
+/// `selected` without `--sdk`, and otherwise that `OHOS_SDK_NATIVE` overrides the selection:
+/// an environment variable or a newer SDK in the cache wins over the one just installed.
+fn selection_note(installed: &Path, selected: Option<&Path>) -> String {
+    match selected {
+        Some(selected) if selected == installed => {
+            "cargo-ohos will pick this up on its own. To point other tools at it:".to_owned()
+        }
+        Some(selected) => format!(
+            "cargo-ohos currently selects the SDK at {}. To use this one instead, set \
+             OHOS_SDK_NATIVE:",
+            selected.display()
+        ),
+        None => "To use it, set OHOS_SDK_NATIVE:".to_owned(),
+    }
 }
 
 fn print_env_hint(name: &str, value: &Path) {
@@ -754,6 +780,24 @@ fn spawn(build_env: Option<&BuildEnv>, argv: &[OsString]) -> Result<ExitCode, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn says_how_to_switch_to_the_installed_sdk() {
+        let installed = Path::new("/cache/ohos-sdk/6.1/linux/23/native");
+
+        let note = selection_note(installed, Some(installed));
+        assert!(note.starts_with("cargo-ohos will pick this up"), "{note}");
+
+        let note = selection_note(installed, Some(Path::new("/opt/sdk/native")));
+        assert!(
+            note.contains("currently selects the SDK at /opt/sdk/native"),
+            "{note}"
+        );
+        assert!(note.contains("set OHOS_SDK_NATIVE"), "{note}");
+
+        let note = selection_note(installed, None);
+        assert!(note.contains("set OHOS_SDK_NATIVE"), "{note}");
+    }
 
     #[test]
     fn parses_tool_version_output() {
