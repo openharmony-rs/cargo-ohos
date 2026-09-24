@@ -95,6 +95,10 @@ jobs:
       ARCHIVE: cargo-ohos-${{ matrix.target }}${{ startsWith(matrix.os, 'windows') && '.zip' || '.tar.gz' }}
       # Links the C runtime statically, so the binary does not need the Visual C++ Redistributable.
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+      # cc-rs would otherwise look for `<arch>-linux-musl-gcc` to build ring. clang uses the glibc
+      # headers, which is fine while the C code only needs `memset`/`memcpy` from libc.
+      CC_x86_64_unknown_linux_musl: clang
+      CC_aarch64_unknown_linux_musl: clang
     steps:
       - uses: actions/checkout@v7
         with:
