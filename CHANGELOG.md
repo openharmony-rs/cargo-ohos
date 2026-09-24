@@ -16,6 +16,8 @@
   variable is set.
   The `sdk` JSON object gained `ninja`.
   Users may need to `cargo clean` once after upgrading.
+- Releases come with prebuilt binaries for Linux, Apple Silicon macOS and x86_64 Windows, which
+  `cargo binstall cargo-ohos` installs.
 
 ## 0.3.2
 

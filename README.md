@@ -3,6 +3,15 @@
 Cross-compile Rust for OpenHarmony. Sets up the environment for cargo, cc-rs, bindgen,
 cmake-rs and pkg-config from the OpenHarmony SDK.
 
+## Installation
+
+```sh
+# Prebuilt binaries are available for Linux, Apple Silicon macOS and x86_64 Windows
+cargo binstall cargo-ohos
+# or build it from source
+cargo install --locked cargo-ohos
+```
+
 ## Usage
 
 ```sh
@@ -134,6 +143,13 @@ The array may be empty (if no runtime libraries are required).
 **Attention**: If you use `cargo ohos build` and additionally `cargo ohos env` to determine the runtime libraries,
 please make sure to use the same flags (specifically `--download-prebuilt` / `--llvm` must match), otherwise
 you could end up with a list of wrong paths.
+
+## Releasing
+
+Bump the version in `Cargo.toml` and merge the change into `main`. The `Release` workflow then
+builds the binaries and, in the `release` environment, tags the commit as `<version>`, publishes
+the crate to crates.io and publishes the GitHub release with the binaries attached.
+If a release did not complete, run the `Release` workflow manually for its tag to finish it.
 
 ## License
 
