@@ -117,15 +117,29 @@ fn build_request(url: &str) -> ureq::RequestBuilder<ureq::typestate::WithoutBody
 
 /// Open `path` and lock it exclusively; the lock is held until the file is dropped.
 pub fn lock(path: &Path) -> Result<File, String> {
-    let file = std::fs::OpenOptions::new()
+    let file = open_lock_file(path)?;
+    FileExt::lock(&file).map_err(|e| format!("could not lock {}: {e}", path.display()))?;
+    Ok(file)
+}
+
+/// Like [`lock`], but `None` instead of waiting while someone else holds the lock.
+pub fn try_lock(path: &Path) -> Result<Option<File>, String> {
+    let file = open_lock_file(path)?;
+    match FileExt::try_lock(&file) {
+        Ok(()) => Ok(Some(file)),
+        Err(fs4::TryLockError::WouldBlock) => Ok(None),
+        Err(fs4::TryLockError::Error(e)) => Err(format!("could not lock {}: {e}", path.display())),
+    }
+}
+
+fn open_lock_file(path: &Path) -> Result<File, String> {
+    std::fs::OpenOptions::new()
         .create(true)
         .read(true)
         .write(true)
         .truncate(false)
         .open(path)
-        .map_err(|e| format!("could not open {}: {e}", path.display()))?;
-    FileExt::lock(&file).map_err(|e| format!("could not lock {}: {e}", path.display()))?;
-    Ok(file)
+        .map_err(|e| format!("could not open {}: {e}", path.display()))
 }
 
 pub fn cache_root(subdir: &str) -> PathBuf {
@@ -641,6 +655,25 @@ mod tests {
             extract_tar_gz_sparse(&dir.join("escape.tar.gz"), &dir.join("out")).unwrap_err();
         assert!(error.contains("unexpected path `../x`"), "{error}");
         assert!(!dir.join("x").exists());
+        remove_dir_if_exists(&dir).unwrap();
+    }
+
+    #[test]
+    fn try_lock_does_not_wait_for_a_held_lock() {
+        let dir = test_dir("try-lock");
+        let path = dir.join("a.lock");
+        let held = lock(&path).unwrap();
+        assert!(try_lock(&path).unwrap().is_none());
+        drop(held);
+        // A process another test forks holds a copy of the descriptor until it execs.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while try_lock(&path).unwrap().is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the lock was not released"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
         remove_dir_if_exists(&dir).unwrap();
     }
 }
