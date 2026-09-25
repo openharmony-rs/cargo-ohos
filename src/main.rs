@@ -126,6 +126,7 @@ struct Options {
     download_prebuilt: Option<String>,
     no_inline_flags: bool,
     min_api: Option<u32>,
+    manifest_path: Option<PathBuf>,
 }
 
 impl TryFrom<CliOptions> for Options {
@@ -150,6 +151,7 @@ impl TryFrom<CliOptions> for Options {
             download_prebuilt,
             no_inline_flags: cli.no_inline_flags,
             min_api: cli.min_api,
+            manifest_path: None,
         })
     }
 }
@@ -192,6 +194,7 @@ impl Options {
             None => self.llvm.clone(),
         };
         config.no_inline_flags = self.no_inline_flags;
+        config.manifest_path = self.manifest_path.clone();
         let build_env = build_env::derive(&config).map_err(|e| e.to_string())?;
         check_min_api(&build_env.sdk, self.min_api)?;
         Ok(build_env)
@@ -295,7 +298,8 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         return Ok(code);
     }
 
-    let options = Options::try_from(options)?;
+    let mut options = Options::try_from(options)?;
+    options.manifest_path = manifest_path(&rest);
     let mut build_env = options.derive_build_env()?;
 
     let runner_var = format!(
@@ -584,6 +588,23 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(CliOptions, Vec<OsString>), 
     Ok((options, rest))
 }
 
+/// The `--manifest-path` of the cargo command line, if any.
+fn manifest_path(cargo_args: &[OsString]) -> Option<PathBuf> {
+    let mut args = cargo_args.iter().take_while(|arg| *arg != "--");
+    while let Some(arg) = args.next() {
+        if arg == "--manifest-path" {
+            return args.next().map(PathBuf::from);
+        }
+        if let Some(path) = arg
+            .to_str()
+            .and_then(|a| a.strip_prefix("--manifest-path="))
+        {
+            return Some(PathBuf::from(path));
+        }
+    }
+    None
+}
+
 fn parse_min_api(value: &str) -> Result<u32, String> {
     value
         .parse()
@@ -847,6 +868,27 @@ mod tests {
         assert_eq!(
             rest,
             ["test", "--", "--target", "foo", "--sdk", "x"].map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn manifest_path_is_taken_from_the_cargo_arguments() {
+        let manifest_path =
+            |args: &[&str]| manifest_path(&args.iter().map(OsString::from).collect::<Vec<_>>());
+
+        assert_eq!(
+            manifest_path(&["build", "--manifest-path", "a/Cargo.toml"]),
+            Some(PathBuf::from("a/Cargo.toml"))
+        );
+        assert_eq!(
+            manifest_path(&["build", "--manifest-path=a/Cargo.toml", "--release"]),
+            Some(PathBuf::from("a/Cargo.toml"))
+        );
+        assert_eq!(manifest_path(&["build", "--release"]), None);
+        // Behind the separator it belongs to the binary cargo runs.
+        assert_eq!(
+            manifest_path(&["run", "--", "--manifest-path", "a/Cargo.toml"]),
+            None
         );
     }
 

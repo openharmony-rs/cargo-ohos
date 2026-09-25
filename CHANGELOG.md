@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `cargo ohos <cargo command> --manifest-path <path>` now works outside the project's directory.
+  The generated cmake toolchain file goes into the target directory of the project the manifest
+  belongs to, instead of the one of the working directory, which failed when there was none.
+
 ## 0.3.3
 
 - Add `cargo ohos init sdk --version <VERSION>` to download and cache the OpenHarmony SDK from
