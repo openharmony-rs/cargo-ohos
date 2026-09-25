@@ -48,6 +48,11 @@ enum Cmd {
         #[command(subcommand)]
         command: InitCmd,
     },
+    /// Run OpenHarmony emulators in QEMU.
+    Emulator {
+        #[command(subcommand)]
+        command: emulator::EmulatorCmd,
+    },
     #[command(external_subcommand)]
     Cargo(Vec<OsString>),
 }
@@ -284,6 +289,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             run_init(command)?;
             return Ok(ExitCode::SUCCESS);
         }
+        Cmd::Emulator { command } => return emulator::run(command),
         Cmd::Cargo(args) => args,
     };
     let (options, rest) = split_cargo_args(args)?;

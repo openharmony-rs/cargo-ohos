@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Add `cargo ohos init emulator` to download an OpenHarmony 7.0 QEMU image of
-  harmony-contrib/ohos-qemu, pinned by release tag and SHA-256.
+  harmony-contrib/ohos-qemu, pinned by release tag and SHA-256, and
+  `cargo ohos emulator start|stop|status|reset|delete` to run it with the host's QEMU.
 
 ## 0.3.3
 

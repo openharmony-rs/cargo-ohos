@@ -144,22 +144,46 @@ The array may be empty (if no runtime libraries are required).
 please make sure to use the same flags (specifically `--download-prebuilt` / `--llvm` must match), otherwise
 you could end up with a list of wrong paths.
 
-### Emulator images
+### Emulator
 
-`cargo ohos init emulator` downloads the OpenHarmony QEMU image of
+`cargo-ohos` can run OpenHarmony in QEMU, using the image of
 [harmony-contrib/ohos-qemu](https://github.com/harmony-contrib/ohos-qemu) (OpenHarmony 7.0,
-API 26) for the host's architecture, `x86_64` or `aarch64`, as a `phone` or a `2in1` device:
+API 26) for the host's architecture, `x86_64` or `aarch64`, as a `phone` or a `2in1` device.
+QEMU itself has to be installed: `apt install qemu-system-x86 qemu-utils` (or `qemu-system-arm`
+on arm64), `brew install qemu`, or the [Windows installer](https://www.qemu.org/download/#windows).
 
 ```sh
-cargo ohos init emulator            # as a phone
-cargo ohos init emulator --device 2in1
-cargo ohos init emulator --list
+cargo ohos init emulator            # the image of the host's architecture, as a phone
+cargo ohos emulator start           # boots it and prints its hdc connect-key, 127.0.0.1:5555
+OHOS_TEST_RUNNER_HDC_TARGET=127.0.0.1:5555 cargo ohos test -t x86_64
+cargo ohos emulator stop
 ```
 
-Each version of `cargo-ohos` installs one release of the images, pinned by its tag and the
-SHA-256 of every archive, so an image cannot change without a `cargo-ohos` release. The images
-are built by the harmony-contrib project and carry no build provenance attestation. They are
-unpacked next to the SDKs in the cache, as sparse files: a phone image takes about 1.5 GB.
+`init emulator --device 2in1` picks the 2in1 image and `--list` shows the images. Each version of
+`cargo-ohos` installs one release of the images, pinned by its tag and the SHA-256 of every archive,
+so an image cannot change without a `cargo-ohos` release. The images are built by the
+harmony-contrib project and carry no build provenance attestation. They are unpacked next to the
+SDKs in the cache, as sparse files: a phone image takes about 1.5 GB.
+
+The image needs hardware acceleration: KVM on Linux (`/dev/kvm` must be readable and writable),
+Hypervisor.framework on macOS and WHPX on Windows. If the hypervisor is not usable, `emulator
+start` fails and says why. It does not fall back to QEMU's software emulation, which is too slow
+for the images: their system services time out while booting, and the boot never completes. For
+the same reason there are no emulators of other architectures than the host's.
+
+`emulator start` returns once the guest has booted and hdc is connected to it, leaving QEMU
+running in the background. The emulator is only reachable from the local machine: the guest's
+hdc daemon runs as root and accepts every connection. Useful options:
+
+- `--display vnc|gtk|sdl|cocoa` shows the screen, by default there is none.
+- `--foreground` keeps QEMU in the terminal with the guest's serial console, `Ctrl-A X` quits.
+- `--ephemeral` discards everything the guest writes during this run.
+- `-- <QEMU arguments>` passes further arguments to QEMU.
+
+An emulator is an instance named `<arch>-<device>` by default; `emulator start my-name` creates
+another one. Each instance keeps what the guest writes in qcow2 overlays of the
+images, which needs `qemu-img`, and has an hdc port of its own. `emulator status` lists the
+instances, `emulator reset` discards their disks and `emulator delete` removes them.
 
 ## Releasing
 
