@@ -155,7 +155,7 @@ on arm64), `brew install qemu`, or the [Windows installer](https://www.qemu.org/
 ```sh
 cargo ohos init emulator            # the image of the host's architecture, as a phone
 cargo ohos emulator start           # boots it and prints its hdc connect-key, 127.0.0.1:5555
-OHOS_TEST_RUNNER_HDC_TARGET=127.0.0.1:5555 cargo ohos test -t x86_64
+cargo ohos test -t x86_64           # runs the tests on it
 cargo ohos emulator stop
 ```
 
@@ -184,6 +184,13 @@ An emulator is an instance named `<arch>-<device>` by default; `emulator start m
 another one. Each instance keeps what the guest writes in qcow2 overlays of the
 images, which needs `qemu-img`, and has an hdc port of its own. `emulator status` lists the
 instances, `emulator reset` discards their disks and `emulator delete` removes them.
+
+`cargo ohos run`/`test`/`bench` run the binaries on the only device that can run them, a
+connected one or a running emulator of the target's architecture (going by the ABIs a device
+lists in `const.product.cpu.abilist`), unless `OHOS_TEST_RUNNER_HDC_TARGET` selects a device
+already. If there are several, they ask which one
+to use when run in a terminal, and fail otherwise. `--emulator[=NAME]` asks for an emulator
+explicitly, and starts it if needed.
 
 ## Releasing
 

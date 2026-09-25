@@ -337,3 +337,314 @@ mod test_runner {
             .fails_with(&["runs binaries on a connected device"]);
     }
 }
+
+/// Which device `cargo ohos run/test` pick when emulators are running. The emulators are fakes:
+/// an instance directory in a cache of the test's own, whose QMP server answers like QEMU does,
+/// and a fake `hdc` connected to them.
+mod emulator {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    use super::*;
+
+    const HDC_TARGET_VAR: &str = "OHOS_TEST_RUNNER_HDC_TARGET";
+
+    /// The port of a QMP server answering every command with an empty result, serving until
+    /// the test process ends.
+    fn fake_qmp() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut writer) = stream else { continue };
+                let reader = BufReader::new(writer.try_clone().unwrap());
+                let _ = writeln!(
+                    writer,
+                    r#"{{"QMP": {{"version": {{}}, "capabilities": []}}}}"#
+                );
+                for _ in reader.lines().map_while(Result::ok) {
+                    let _ = writeln!(writer, r#"{{"return": {{}}}}"#);
+                }
+            }
+        });
+        port
+    }
+
+    /// A cache holding a running instance of `arch` for every entry of `arches`, with hdc on
+    /// ports from 6000 on.
+    fn cache_with_emulators(arches: &[&str]) -> TempDir {
+        let cache = TempDir::new("emulator-cache");
+        for (index, arch) in arches.iter().enumerate() {
+            let dir = cache
+                .path()
+                .join(format!("cargo-ohos/ohos-emulator/instances/{arch}-{index}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            let config = format!(
+                r#"{{"arch": "{arch}", "device": "phone", "release": "v20260919", "hdc_port": {}}}"#,
+                6000 + index
+            );
+            std::fs::write(dir.join("instance.json"), config).unwrap();
+            let runtime = format!(
+                r#"{{"pid": 1, "qmp": {{"tcp": {}}}, "accel": "kvm", "ephemeral": true, "vnc_port": null}}"#,
+                fake_qmp()
+            );
+            std::fs::write(dir.join("runtime.json"), runtime).unwrap();
+        }
+        cache
+    }
+
+    #[test]
+    fn the_only_running_emulator_of_the_target_is_used() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture.tools.hdc(&[
+            ("127.0.0.1:6000", "x86_64"),
+            ("127.0.0.1:6001", "arm64-v8a"),
+        ]);
+        let cache = cache_with_emulators(&["x86_64", "aarch64"]);
+
+        let run = fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .success();
+
+        assert_eq!(
+            cargo.invocation().expect_env(HDC_TARGET_VAR),
+            "127.0.0.1:6001"
+        );
+        assert!(
+            run.stderr.contains("running on emulator `aarch64-1`"),
+            "{run}"
+        );
+    }
+
+    #[test]
+    fn emulators_of_other_targets_are_not_used() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture.tools.hdc(&[("127.0.0.1:6000", "x86_64")]);
+        let cache = cache_with_emulators(&["x86_64"]);
+
+        fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .fails_with(&[
+                "not using emulator `x86_64-0`, which runs x86_64 rather than aarch64 binaries",
+                "no connected device or running emulator runs aarch64 binaries",
+            ]);
+        cargo.was_not_invoked();
+    }
+
+    #[test]
+    fn devices_of_other_architectures_are_not_used() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture.tools.hdc(&[
+            ("phone", "arm64-v8a"),
+            ("pc", "x86_64"),
+            ("board", "armeabi-v7a"),
+        ]);
+        let cache = cache_with_emulators(&[]);
+
+        let run = fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .success();
+
+        assert_eq!(cargo.invocation().expect_env(HDC_TARGET_VAR), "phone");
+        assert!(
+            run.stderr
+                .contains("not using device pc, which runs x86_64 rather than aarch64 binaries"),
+            "{run}"
+        );
+        assert!(run.stderr.contains("not using device board"), "{run}");
+    }
+
+    #[test]
+    fn a_device_without_an_abi_list_may_run_them() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture.tools.hdc(&[("mystery", ""), ("pc", "x86_64")]);
+        let cache = cache_with_emulators(&[]);
+
+        fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .success();
+
+        assert_eq!(cargo.invocation().expect_env(HDC_TARGET_VAR), "mystery");
+    }
+
+    #[test]
+    fn several_running_emulators_of_the_target_are_ambiguous() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture.tools.hdc(&[
+            ("127.0.0.1:6000", "arm64-v8a"),
+            ("127.0.0.1:6001", "arm64-v8a"),
+        ]);
+        let cache = cache_with_emulators(&["aarch64", "aarch64"]);
+
+        fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .fails_with(&[
+                "several devices can run the binaries",
+                "emulator `aarch64-0` (127.0.0.1:6000)",
+                "emulator `aarch64-1` (127.0.0.1:6001)",
+                "--emulator=NAME",
+            ]);
+        cargo.was_not_invoked();
+    }
+
+    #[test]
+    fn a_device_and_an_emulator_are_ambiguous() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture
+            .tools
+            .hdc(&[("board", "arm64-v8a"), ("127.0.0.1:6000", "arm64-v8a")]);
+        let cache = cache_with_emulators(&["aarch64"]);
+
+        fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .fails_with(&[
+                "several devices can run the binaries: board, emulator `aarch64-0`",
+                "$OHOS_TEST_RUNNER_HDC_TARGET",
+            ]);
+        cargo.was_not_invoked();
+    }
+
+    #[test]
+    fn the_only_device_is_picked_past_emulators_of_other_targets() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture
+            .tools
+            .hdc(&[("board", "arm64-v8a"), ("127.0.0.1:6000", "x86_64")]);
+        let cache = cache_with_emulators(&["x86_64"]);
+
+        fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .success();
+
+        assert_eq!(cargo.invocation().expect_env(HDC_TARGET_VAR), "board");
+    }
+
+    #[test]
+    fn a_lone_device_is_left_to_the_runner() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture.tools.hdc(&[("board", "arm64-v8a")]);
+        let cache = cache_with_emulators(&[]);
+
+        fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .success();
+
+        assert_eq!(cargo.invocation().env(HDC_TARGET_VAR), None);
+    }
+
+    #[test]
+    fn a_selected_device_wins_over_a_running_emulator() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        let cache = cache_with_emulators(&["aarch64"]);
+
+        fixture
+            .cargo_ohos(&["test"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .env(HDC_TARGET_VAR, "board")
+            .run()
+            .success();
+        assert_eq!(cargo.invocation().expect_env(HDC_TARGET_VAR), "board");
+
+        fixture
+            .cargo_ohos(&["test", "--emulator"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .env(HDC_TARGET_VAR, "board")
+            .run()
+            .fails_with(&["`--emulator` conflicts with $OHOS_TEST_RUNNER_HDC_TARGET"]);
+    }
+
+    #[test]
+    fn a_named_emulator_is_used() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture.tools.hdc(&[
+            ("127.0.0.1:6000", "arm64-v8a"),
+            ("127.0.0.1:6001", "arm64-v8a"),
+        ]);
+        let cache = cache_with_emulators(&["aarch64", "aarch64"]);
+
+        fixture
+            .cargo_ohos(&["test", "--emulator=aarch64-0"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .success();
+
+        assert_eq!(
+            cargo.invocation().expect_env(HDC_TARGET_VAR),
+            "127.0.0.1:6000"
+        );
+    }
+
+    #[test]
+    fn only_subcommands_running_binaries_take_an_emulator() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+
+        fixture
+            .cargo_ohos(&["build", "--emulator"])
+            .run()
+            .fails_with(&["`--emulator`", "`cargo ohos build` runs none"]);
+        cargo.was_not_invoked();
+
+        let run = fixture
+            .cargo_ohos(&["test", "--no-run", "--emulator=x86_64-0"])
+            .run()
+            .success();
+        assert!(run.stderr.contains("ignoring `--emulator`"), "{run}");
+        assert_eq!(cargo.invocation().env(HDC_TARGET_VAR), None);
+    }
+
+    #[test]
+    fn a_named_emulator_of_another_target_is_refused() {
+        let fixture = Fixture::new();
+        let cargo = fixture.tools.cargo(0);
+        fixture.tools.test_runner("0.1.6");
+        fixture.tools.hdc(&[("127.0.0.1:6000", "x86_64")]);
+        let cache = cache_with_emulators(&["x86_64"]);
+
+        fixture
+            .cargo_ohos(&["test", "--emulator=x86_64-0"])
+            .env("XDG_CACHE_HOME", cache.path())
+            .run()
+            .fails_with(&[
+                "emulator `x86_64-0` runs x86_64 binaries, but these are built for aarch64",
+                "`--target x86_64`",
+            ]);
+        cargo.was_not_invoked();
+    }
+}

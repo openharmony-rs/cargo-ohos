@@ -66,6 +66,32 @@ impl FakeTools {
         self.recorder("ohos-test-runner", 0, None)
     }
 
+    /// An `hdc` with the devices `connected`, given by connect-key and the ABI list they
+    /// report, all of which have finished booting.
+    pub fn hdc(&self, connected: &[(&str, &str)]) {
+        let keys: Vec<&str> = connected.iter().map(|(key, _)| *key).collect();
+        let keys = keys.join(" ");
+        let abis: String = connected
+            .iter()
+            .map(|(key, abis)| format!("\t'{key}') echo '{abis} ';;\n"))
+            .collect();
+        let script = format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+             \"list targets\") for key in {keys}; do printf '%s\\n' \"$key\"; done;;\n\
+             \"list targets -v\") for key in {keys}; do\n\
+             \tprintf '%s\\t\\tTCP\\tConnected\\tlocalhost\\thdc\\n' \"$key\"; done;;\n\
+             tconn*) echo 'Connect OK';;\n\
+             *'param get bootevent.boot.completed') echo true;;\n\
+             *'param get const.product.cpu.abilist') case \"$2\" in\n{abis}esac;;\n\
+             esac\n"
+        );
+        let path = self.dir.path().join("hdc");
+        std::fs::write(&path, script).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
     fn recorder(&self, name: &str, exit_code: i32, version_line: Option<String>) -> Recorder {
         let record = self.dir.path().join(format!("{name}.record"));
         let version = match version_line {

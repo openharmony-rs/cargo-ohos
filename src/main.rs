@@ -125,6 +125,9 @@ struct CliOptions {
     /// is below N.
     #[arg(long, value_name = "N")]
     min_api: Option<u32>,
+    /// `--emulator[=NAME]`, which only the cargo commands running target binaries take.
+    #[arg(skip)]
+    emulator: Option<Option<String>>,
 }
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -141,6 +144,7 @@ struct Options {
     download_prebuilt: Option<String>,
     no_inline_flags: bool,
     min_api: Option<u32>,
+    emulator: Option<Option<String>>,
 }
 
 impl TryFrom<CliOptions> for Options {
@@ -165,6 +169,7 @@ impl TryFrom<CliOptions> for Options {
             download_prebuilt,
             no_inline_flags: cli.no_inline_flags,
             min_api: cli.min_api,
+            emulator: cli.emulator,
         })
     }
 }
@@ -272,6 +277,10 @@ fn cargo_commands_help() -> String {
 }
 
 const TEST_RUNNER: &str = "ohos-test-runner";
+/// Tells the test runner which device to run on.
+pub const TEST_RUNNER_HDC_TARGET: &str = "OHOS_TEST_RUNNER_HDC_TARGET";
+/// Tells the test runner which hdc server to use, which cannot reach a local emulator.
+const TEST_RUNNER_HDC_SERVER: &str = "OHOS_TEST_RUNNER_HDC_SERVER";
 /// Tells the test runner which libraries to send to the device alongside the binary.
 const TEST_RUNNER_RUNTIME_LIBRARIES: &str = "OHOS_TEST_RUNNER_RUNTIME_LIBRARIES";
 /// Major, minor, patch.
@@ -310,6 +319,15 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         print_ohos_options_help(&name);
         return Ok(code);
     }
+    if options.emulator.is_some() && !runs_target_binaries(&name, &rest) {
+        if !takes_emulator(&name) {
+            return Err(format!(
+                "`--emulator` picks where `cargo ohos run`, `test` and `bench` run the binaries, \
+                 and `cargo ohos {name}` runs none"
+            ));
+        }
+        eprintln!("note: ignoring `--emulator`, as `--no-run` runs no binaries");
+    }
 
     let options = Options::try_from(options)?;
     let mut build_env = options.derive_build_env()?;
@@ -337,6 +355,20 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         };
         if let Some(runner) = &runner {
             check_test_runner_version(runner)?;
+        }
+        let requested = options.emulator.as_ref().map(Option::as_deref);
+        match (requested, hdc_device_configured()) {
+            (Some(_), Some(variable)) => {
+                return Err(format!(
+                    "`--emulator` conflicts with ${variable}, which selects the device already"
+                ))
+            }
+            (requested, None) => {
+                if let Some(key) = emulator::select_for_target(build_env.target.arch, requested)? {
+                    build_env.env.insert(TEST_RUNNER_HDC_TARGET.to_owned(), key);
+                }
+            }
+            (None, Some(_)) => {}
         }
         if !build_env.runtime_libraries.is_empty() {
             let paths = build_env
@@ -473,18 +505,45 @@ fn print_ohos_options_help(name: &str) {
     let mut cmd = CliOptions::augment_args(clap::Command::new("cargo-ohos"))
         .disable_help_flag(true)
         .help_template("{options}");
+    if takes_emulator(name) {
+        cmd = cmd.arg(
+            clap::Arg::new("emulator")
+                .long("emulator")
+                .value_name("NAME")
+                .num_args(0..=1)
+                .require_equals(true)
+                .help(
+                    "Run the binaries on this emulator, which is started if need be. Without \
+                     the option, they run on the only connected device or running emulator of \
+                     the target's architecture, unless $OHOS_TEST_RUNNER_HDC_TARGET selects a \
+                     device. Of several, you are asked to pick one.",
+                ),
+        );
+    }
     println!(
         "\nOptions handled by `cargo ohos {name}` itself and not passed on to cargo:\n{}",
         cmd.render_help()
     );
 }
 
-fn runs_target_binaries(name: &str, rest: &[OsString]) -> bool {
+/// Whether the cargo subcommand `name` can run target binaries, and so takes `--emulator`.
+fn takes_emulator(name: &str) -> bool {
     matches!(name, "r" | "run" | "t" | "test" | "bench")
+}
+
+fn runs_target_binaries(name: &str, rest: &[OsString]) -> bool {
+    takes_emulator(name)
         && !rest
             .iter()
             .take_while(|arg| arg.as_os_str() != "--")
             .any(|arg| arg == "--no-run" || arg == "--help" || arg == "-h")
+}
+
+/// The variable selecting the device or hdc server for the test runner, if the user set one.
+fn hdc_device_configured() -> Option<&'static str> {
+    [TEST_RUNNER_HDC_TARGET, TEST_RUNNER_HDC_SERVER]
+        .into_iter()
+        .find(|variable| std::env::var_os(variable).is_some_and(|value| !value.is_empty()))
 }
 
 /// The configured runner, if it is an `ohos-test-runner` we can version-check.
@@ -581,6 +640,7 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(CliOptions, Vec<OsString>), 
                     Some(take("--download-prebuilt")?.to_string_lossy().into_owned())
             }
             "--no-inline-flags" => options.no_inline_flags = true,
+            "--emulator" => options.emulator = Some(None),
             "--min-api" => {
                 options.min_api = Some(parse_min_api(&take("--min-api")?.to_string_lossy())?)
             }
@@ -591,6 +651,8 @@ fn split_cargo_args(args: Vec<OsString>) -> Result<(CliOptions, Vec<OsString>), 
                     options.download_prebuilt = Some(v.to_owned());
                 } else if let Some(v) = text.strip_prefix("--min-api=") {
                     options.min_api = Some(parse_min_api(v)?);
+                } else if let Some(v) = text.strip_prefix("--emulator=") {
+                    options.emulator = Some(Some(v.to_owned()));
                 } else {
                     rest.push(arg);
                 }
@@ -880,6 +942,19 @@ mod tests {
         );
         assert!(options.no_inline_flags);
         assert_eq!(rest, [OsString::from("build")]);
+    }
+
+    #[test]
+    fn split_takes_the_emulator() {
+        let (options, rest) =
+            split_cargo_args(["test", "--emulator"].map(OsString::from).to_vec()).unwrap();
+        assert_eq!(options.emulator, Some(None));
+        assert_eq!(rest, [OsString::from("test")]);
+
+        let args = ["test", "--emulator=arm", "--", "--emulator"].map(OsString::from);
+        let (options, rest) = split_cargo_args(args.to_vec()).unwrap();
+        assert_eq!(options.emulator, Some(Some("arm".to_owned())));
+        assert_eq!(rest, ["test", "--", "--emulator"].map(OsString::from));
     }
 
     #[test]
