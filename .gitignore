@@ -1,4 +1,5 @@
 /target
 .idea
 /tests/projects/*/target
+/.github/mozjs-smoke/target
 /.oniro-emulator

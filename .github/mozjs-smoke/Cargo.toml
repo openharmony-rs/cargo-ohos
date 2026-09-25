@@ -1,0 +1,13 @@
+# Builds SpiderMonkey from source for OpenHarmony, see .github/workflows/mozjs.yml. Not part
+# of the cargo-ohos workspace.
+[package]
+name = "mozjs-smoke"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Servo's configuration. Pinned, so that Dependabot proposes SpiderMonkey updates.
+mozjs = { version = "=0.26.4", default-features = false, features = ["intl", "libz-sys"] }
+
+[workspace]
