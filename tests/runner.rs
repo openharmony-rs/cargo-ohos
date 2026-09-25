@@ -171,6 +171,43 @@ fn the_exit_code_of_cargo_is_propagated() {
     assert_eq!(run.output.status.code(), Some(7), "{run}");
 }
 
+/// Without `CARGO_TARGET_DIR` the generated cmake toolchain file goes into the target directory
+/// of the project `--manifest-path` names, which need not contain the working directory.
+#[test]
+fn the_manifest_path_selects_the_target_directory() {
+    let fixture = Fixture::new();
+    let cargo = fixture.tools.cargo(0);
+    let project = TempDir::new("project");
+    std::fs::write(
+        project.path().join("Cargo.toml"),
+        "[package]\nname = \"project\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir(project.path().join("src")).unwrap();
+    std::fs::write(project.path().join("src").join("lib.rs"), "").unwrap();
+    let elsewhere = TempDir::new("elsewhere");
+    let manifest = project.path().join("Cargo.toml");
+
+    fixture
+        .cargo_ohos(&["build", "--manifest-path", manifest.to_str().unwrap()])
+        .env_remove("CARGO_TARGET_DIR")
+        // `cargo metadata` goes to the real cargo, the build to the fake one on `PATH`.
+        .env("CARGO", env!("CARGO"))
+        .current_dir(elsewhere.path())
+        .run()
+        .success();
+
+    let invocation = cargo.invocation();
+    let toolchain_file =
+        Path::new(invocation.expect_env("CMAKE_TOOLCHAIN_FILE_aarch64_unknown_linux_ohos"));
+    assert!(
+        toolchain_file.starts_with(project.path().join("target")),
+        "{}",
+        toolchain_file.display()
+    );
+    assert!(toolchain_file.is_file());
+}
+
 mod test_runner {
     use super::*;
 
