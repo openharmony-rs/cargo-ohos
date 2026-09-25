@@ -144,6 +144,23 @@ The array may be empty (if no runtime libraries are required).
 please make sure to use the same flags (specifically `--download-prebuilt` / `--llvm` must match), otherwise
 you could end up with a list of wrong paths.
 
+### Emulator images
+
+`cargo ohos init emulator` downloads the OpenHarmony QEMU image of
+[harmony-contrib/ohos-qemu](https://github.com/harmony-contrib/ohos-qemu) (OpenHarmony 7.0,
+API 26) for the host's architecture, `x86_64` or `aarch64`, as a `phone` or a `2in1` device:
+
+```sh
+cargo ohos init emulator            # as a phone
+cargo ohos init emulator --device 2in1
+cargo ohos init emulator --list
+```
+
+Each version of `cargo-ohos` installs one release of the images, pinned by its tag and the
+SHA-256 of every archive, so an image cannot change without a `cargo-ohos` release. The images
+are built by the harmony-contrib project and carry no build provenance attestation. They are
+unpacked next to the SDKs in the cache, as sparse files: a phone image takes about 1.5 GB.
+
 ## Releasing
 
 Bump the version in `Cargo.toml` and merge the change into `main`. The `Release` workflow then

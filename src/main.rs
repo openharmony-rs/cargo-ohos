@@ -1,6 +1,7 @@
 mod attestation;
 mod build_env;
 mod download;
+mod emulator;
 mod prebuilt;
 mod sdk;
 mod target;
@@ -79,6 +80,15 @@ enum InitCmd {
             )
         )]
         components: Vec<String>,
+    },
+    /// Download and cache the OpenHarmony emulator image of the host's architecture for QEMU.
+    Emulator {
+        /// The device type the image is built for.
+        #[arg(long, value_enum, default_value_t = emulator::Device::Phone)]
+        device: emulator::Device,
+        /// List the images this version of cargo-ohos can install and exit.
+        #[arg(long, conflicts_with = "device")]
+        list: bool,
     },
 }
 
@@ -368,6 +378,7 @@ fn run_init(command: InitCmd) -> Result<(), String> {
             print_sdk_instructions(&sdk);
             Ok(())
         }
+        InitCmd::Emulator { device, list } => emulator::init(device, list),
     }
 }
 

@@ -3,8 +3,8 @@
 
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use flate2::read::GzDecoder;
@@ -270,6 +270,85 @@ pub fn extract_tar_gz_files(
     Ok(())
 }
 
+/// Extract a `.tar.gz` holding only directories and regular files into `destination`,
+/// leaving the all-zero blocks of the files as holes. Disk images are mostly zeros, so this
+/// saves most of their size on file systems with sparse files.
+pub fn extract_tar_gz_sparse(archive_path: &Path, destination: &Path) -> Result<(), String> {
+    eprintln!("note: extracting {}", archive_path.display());
+    let fail = |e: std::io::Error| format!("could not extract {}: {e}", archive_path.display());
+    let file = File::open(archive_path)
+        .map_err(|e| format!("could not open {}: {e}", archive_path.display()))?;
+    let mut archive = tar::Archive::new(GzDecoder::new(file));
+    for entry in archive.entries().map_err(fail)? {
+        let mut entry = entry.map_err(fail)?;
+        let relative = entry.path().map_err(fail)?.into_owned();
+        if !relative
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+        {
+            return Err(format!(
+                "{} contains the unexpected path `{}`",
+                archive_path.display(),
+                relative.display()
+            ));
+        }
+        let path = destination.join(&relative);
+        match entry.header().entry_type() {
+            tar::EntryType::Directory => std::fs::create_dir_all(&path).map_err(fail)?,
+            tar::EntryType::Regular => {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).map_err(fail)?;
+                }
+                let mode = entry.header().mode().map_err(fail)?;
+                write_sparse(&mut entry, &path, mode).map_err(fail)?;
+            }
+            tar::EntryType::XGlobalHeader => {}
+            other => {
+                return Err(format!(
+                    "{} contains `{}` of the unsupported type {other:?}",
+                    archive_path.display(),
+                    relative.display()
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_sparse(reader: &mut impl Read, path: &Path, mode: u32) -> std::io::Result<()> {
+    let mut file = File::create(path)?;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    let mut length = 0;
+    loop {
+        let mut count = 0;
+        while count < buffer.len() {
+            match reader.read(&mut buffer[count..])? {
+                0 => break,
+                read => count += read,
+            }
+        }
+        if count == 0 {
+            break;
+        }
+        if buffer[..count].iter().all(|&byte| byte == 0) {
+            file.seek(SeekFrom::Current(count as i64))?;
+        } else {
+            file.write_all(&buffer[..count])?;
+        }
+        length += count as u64;
+    }
+    // Trailing holes only move the position, the length has to be set.
+    file.set_len(length)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(mode & 0o777))?;
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
+    Ok(())
+}
+
 pub fn remove_dir_if_exists(path: &Path) -> Result<(), String> {
     match std::fs::remove_dir_all(path) {
         Ok(()) => Ok(()),
@@ -461,5 +540,107 @@ mod tests {
         });
 
         assert_eq!(root, Path::new("custom-target/ohos-llvm"));
+    }
+
+    /// A fresh directory for one test, named after it.
+    fn test_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "cargo-ohos-download-test-{name}-{}",
+            std::process::id()
+        ));
+        remove_dir_if_exists(&path).unwrap();
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    fn write_archive(path: &Path, append: impl FnOnce(&mut tar::Builder<Vec<u8>>)) {
+        let mut builder = tar::Builder::new(Vec::new());
+        append(&mut builder);
+        let mut encoder =
+            flate2::write::GzEncoder::new(File::create(path).unwrap(), flate2::Compression::fast());
+        encoder.write_all(&builder.into_inner().unwrap()).unwrap();
+        encoder.finish().unwrap();
+    }
+
+    fn file_header(size: usize) -> tar::Header {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(size as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        header
+    }
+
+    #[test]
+    fn extracts_files_with_holes_intact() {
+        let dir = test_dir("sparse");
+        let mut image = vec![0_u8; 200 * 1024];
+        image[100_000..100_004].copy_from_slice(b"data");
+        write_archive(&dir.join("a.tar.gz"), |builder| {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Directory);
+            header.set_size(0);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "package/", std::io::empty())
+                .unwrap();
+            builder
+                .append_data(
+                    &mut file_header(image.len()),
+                    "package/images/system.img",
+                    &image[..],
+                )
+                .unwrap();
+            builder
+                .append_data(&mut file_header(0), "package/empty", std::io::empty())
+                .unwrap();
+        });
+
+        let out = dir.join("out");
+        extract_tar_gz_sparse(&dir.join("a.tar.gz"), &out).unwrap();
+
+        assert_eq!(
+            std::fs::read(out.join("package/images/system.img")).unwrap(),
+            image
+        );
+        assert_eq!(std::fs::read(out.join("package/empty")).unwrap(), b"");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(out.join("package/empty"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
+        remove_dir_if_exists(&dir).unwrap();
+    }
+
+    #[test]
+    fn sparse_extraction_rejects_links_and_escaping_paths() {
+        let dir = test_dir("sparse-reject");
+        write_archive(&dir.join("link.tar.gz"), |builder| {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_size(0);
+            builder
+                .append_link(&mut header, "package/link", "/etc")
+                .unwrap();
+        });
+        write_archive(&dir.join("escape.tar.gz"), |builder| {
+            let mut header = file_header(1);
+            // `set_path` refuses `..`, which is what this archive must contain.
+            header.as_old_mut().name[..4].copy_from_slice(b"../x");
+            header.set_cksum();
+            builder.append(&header, &b"x"[..]).unwrap();
+        });
+
+        let error = extract_tar_gz_sparse(&dir.join("link.tar.gz"), &dir.join("out")).unwrap_err();
+        assert!(error.contains("unsupported type"), "{error}");
+        let error =
+            extract_tar_gz_sparse(&dir.join("escape.tar.gz"), &dir.join("out")).unwrap_err();
+        assert!(error.contains("unexpected path `../x`"), "{error}");
+        assert!(!dir.join("x").exists());
+        remove_dir_if_exists(&dir).unwrap();
     }
 }
