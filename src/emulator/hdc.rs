@@ -7,6 +7,8 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use crate::target::Arch;
+
 const TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct Hdc {
@@ -20,6 +22,18 @@ pub enum TargetState {
     /// Listed, but not connected: the server may still be trying to connect.
     Offline,
     Connected,
+}
+
+/// The architectures of a comma-separated ABI list such as `arm64-v8a,armeabi-v7a`.
+fn parse_abis(list: &str) -> Vec<Arch> {
+    list.split(|c: char| c == ',' || c.is_whitespace())
+        .filter_map(|abi| match abi {
+            "arm64-v8a" => Some(Arch::Aarch64),
+            "armeabi-v7a" => Some(Arch::Armv7),
+            "x86_64" => Some(Arch::X86_64),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The state of `key` in the output of `hdc list targets -v`, whose lines read
@@ -70,6 +84,27 @@ impl Hdc {
     /// restarts: nothing removes a TCP target from its list.
     pub fn disconnect(&self, key: &str) {
         let _ = self.run(&["tconn", key, "-remove"]);
+    }
+
+    /// The connect-keys of the connected devices.
+    pub fn connected(&self) -> Result<Vec<String>, String> {
+        let output = self.run(&["list", "targets"])?;
+        Ok(output
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && *line != "[Empty]")
+            .map(str::to_owned)
+            .collect())
+    }
+
+    /// The architectures whose binaries the device `key` runs, from the ABIs it lists, or
+    /// `None` if it lists none of them.
+    pub fn arches(&self, key: &str) -> Option<Vec<Arch>> {
+        let output = self
+            .shell(key, "param get const.product.cpu.abilist")
+            .ok()?;
+        let arches = parse_abis(&output);
+        (!arches.is_empty()).then_some(arches)
     }
 
     /// What the hdc server knows of `key`.
@@ -144,5 +179,17 @@ mod tests {
             parse_state("[Empty]\n", "127.0.0.1:5555"),
             TargetState::Absent
         );
+    }
+
+    #[test]
+    fn reads_the_abi_list() {
+        assert_eq!(parse_abis("arm64-v8a \n"), [Arch::Aarch64]);
+        assert_eq!(
+            parse_abis("arm64-v8a,armeabi-v7a\n"),
+            [Arch::Aarch64, Arch::Armv7]
+        );
+        assert_eq!(parse_abis("x86_64 \n"), [Arch::X86_64]);
+        let failed = "Get parameter \"const.product.cpu.abilist\" fail! errNum is:106!";
+        assert!(parse_abis(failed).is_empty());
     }
 }

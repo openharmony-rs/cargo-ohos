@@ -5,6 +5,9 @@
 - Add `cargo ohos init emulator` to download an OpenHarmony 7.0 QEMU image of
   harmony-contrib/ohos-qemu, pinned by release tag and SHA-256, and
   `cargo ohos emulator start|stop|status|reset|delete` to run it with the host's QEMU.
+- `cargo ohos run`/`test`/`bench` run on the running emulator of the target's architecture when
+  no device is selected, ask which device to use when several can run the binaries, and take
+  `--emulator[=NAME]` to start and use one explicitly.
 
 ## 0.3.3
 

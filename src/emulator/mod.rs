@@ -162,6 +162,31 @@ pub struct StartArgs {
     qemu_args: Vec<OsString>,
 }
 
+const DEFAULT_RESOLUTION: (u32, u32) = (800, 500);
+
+impl StartArgs {
+    /// What `cargo ohos emulator start [NAME]` would use.
+    fn defaults(name: Option<String>) -> Self {
+        Self {
+            name,
+            device: None,
+            ephemeral: false,
+            display: Display::None,
+            accel: Accel::Auto,
+            cpu: None,
+            smp: None,
+            memory: None,
+            resolution: DEFAULT_RESOLUTION,
+            hdc_port: None,
+            qemu: None,
+            foreground: false,
+            no_wait: false,
+            timeout: None,
+            qemu_args: Vec::new(),
+        }
+    }
+}
+
 fn parse_resolution(value: &str) -> Result<(u32, u32), String> {
     value
         .split_once('x')
@@ -399,6 +424,206 @@ fn installed_images(image: &Image) -> Result<PathBuf, String> {
     Ok(dir.join("images"))
 }
 
+/// The hdc connect-key of the device that `cargo ohos run/test/bench` run the target binaries
+/// on, if cargo-ohos has to pick it: the emulator `requested` with `--emulator[=NAME]`, started
+/// if need be, or else the only device that can run them, a connected one or a running emulator
+/// of the target's architecture. Of several, the user picks one if there is a terminal to ask.
+pub fn select_for_target(
+    arch: Arch,
+    requested: Option<Option<&str>>,
+) -> Result<Option<String>, String> {
+    let name = match requested {
+        Some(name) => {
+            let name = name.map_or_else(
+                || format!("{}-{}", arch.name(), Device::Phone.name()),
+                str::to_owned,
+            );
+            check_emulator_for_target(&name, arch)?;
+            name
+        }
+        None => match pick_device(arch)? {
+            None => return Ok(None),
+            Some(Pick::Device(key)) => {
+                eprintln!("note: running on device {key}");
+                return Ok(Some(key));
+            }
+            Some(Pick::Emulator { name, .. }) => name,
+        },
+    };
+    let instance = match start(StartArgs::defaults(Some(name)))? {
+        Started::Detached(instance) => instance,
+        Started::Exited(_) => unreachable!("started in the background"),
+    };
+    let key = instance.key();
+    eprintln!("note: running on emulator `{}` ({key})", instance.name);
+    Ok(Some(key))
+}
+
+/// That the emulator `name` can run binaries for `arch`, or else be started to.
+fn check_emulator_for_target(name: &str, arch: Arch) -> Result<(), String> {
+    let instance = Instance::open(name)?;
+    let host = std::env::consts::ARCH;
+    if let Some(instance) = &instance {
+        let emulator = instance.config.arch.name();
+        if instance.config.arch != arch {
+            let elsewhere = match qemu::check_arch(host, arch) {
+                Ok(()) => format!("pick an {} emulator with `--emulator=NAME`", arch.name()),
+                Err(_) => format!("run them on an {} device", arch.name()),
+            };
+            return Err(format!(
+                "emulator `{name}` runs {emulator} binaries, but these are built for {}: build \
+                 them with `--target {emulator}`, or {elsewhere}",
+                arch.name()
+            ));
+        }
+    }
+    if instance.is_none_or(|instance| instance.running().is_none()) {
+        qemu::check_arch(host, arch).map_err(|_| {
+            format!(
+                "QEMU only runs emulators of the host's architecture, {host}, fast enough: build \
+                 the binaries with `--target {host}`, or run them on an {} device",
+                arch.name()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+enum Pick {
+    Device(String),
+    Emulator { name: String, key: String },
+}
+
+impl std::fmt::Display for Pick {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Pick::Device(key) => f.write_str(key),
+            Pick::Emulator { name, key } => write!(f, "emulator `{name}` ({key})"),
+        }
+    }
+}
+
+/// The only connected device or running emulator which runs binaries for `arch`. A device is
+/// only picked if other devices are connected, which the test runner would find ambiguous: on
+/// its own, it is used anyway.
+fn pick_device(arch: Arch) -> Result<Option<Pick>, String> {
+    let running: Vec<Instance> = Instance::all()?
+        .into_iter()
+        .filter(|instance| instance.running().is_some())
+        .collect();
+    // Without hdc, the test runner explains what is missing.
+    let hdc = Hdc::find().ok();
+    let connected = hdc
+        .as_ref()
+        .and_then(|hdc| hdc.connected().ok())
+        .unwrap_or_default();
+    let mut candidates = Vec::new();
+    let mut unfit = false;
+    for key in &connected {
+        if running.iter().any(|instance| instance.key() == *key) {
+            continue;
+        }
+        // A device which does not list its ABIs may still run the binaries.
+        match hdc.as_ref().and_then(|hdc| hdc.arches(key)) {
+            Some(arches) if !arches.contains(&arch) => {
+                let names: Vec<&str> = arches.iter().map(|arch| arch.name()).collect();
+                eprintln!(
+                    "note: not using device {key}, which runs {} rather than {} binaries",
+                    names.join(" and "),
+                    arch.name()
+                );
+                unfit = true;
+            }
+            _ => candidates.push(Pick::Device(key.clone())),
+        }
+    }
+    for instance in running {
+        if instance.config.arch == arch {
+            candidates.push(Pick::Emulator {
+                key: instance.key(),
+                name: instance.name,
+            });
+        } else {
+            eprintln!(
+                "note: not using emulator `{}`, which runs {} rather than {} binaries",
+                instance.name,
+                instance.config.arch.name(),
+                arch.name()
+            );
+            unfit = true;
+        }
+    }
+    match candidates.len() {
+        0 if unfit => Err(format!(
+            "no connected device or running emulator runs {} binaries",
+            arch.name()
+        )),
+        0 => Ok(None),
+        1 => match candidates.remove(0) {
+            Pick::Device(_) if connected.len() == 1 => Ok(None),
+            pick => Ok(Some(pick)),
+        },
+        _ => ask(candidates).map(Some),
+    }
+}
+
+/// How long the user has to pick a device.
+const PICK_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Let the user pick one of `candidates` on the terminal, if there is one.
+fn ask(mut candidates: Vec<Pick>) -> Result<Pick, String> {
+    use std::io::IsTerminal;
+
+    let ambiguous = |candidates: &[Pick]| {
+        let names: Vec<String> = candidates.iter().map(Pick::to_string).collect();
+        let emulator = if candidates
+            .iter()
+            .any(|c| matches!(c, Pick::Emulator { .. }))
+        {
+            ", or pick an emulator with `--emulator=NAME`"
+        } else {
+            ""
+        };
+        format!(
+            "several devices can run the binaries: {}. Set ${} to the connect-key of one{emulator}",
+            names.join(", "),
+            crate::TEST_RUNNER_HDC_TARGET
+        )
+    };
+    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+        return Err(ambiguous(&candidates));
+    }
+    eprintln!("Several devices can run the binaries:");
+    for (number, candidate) in candidates.iter().enumerate() {
+        eprintln!("  {}) {candidate}", number + 1);
+    }
+    eprint!("Run them on [1-{}]: ", candidates.len());
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = std::io::stdin().read_line(&mut line);
+        let _ = sender.send(line);
+    });
+    let Ok(line) = receiver.recv_timeout(PICK_TIMEOUT) else {
+        eprintln!();
+        return Err(format!(
+            "no device was picked within {} s; {}",
+            PICK_TIMEOUT.as_secs(),
+            ambiguous(&candidates)
+        ));
+    };
+    match line.trim().parse::<usize>() {
+        Ok(number) if (1..=candidates.len()).contains(&number) => {
+            Ok(candidates.swap_remove(number - 1))
+        }
+        _ => Err(format!(
+            "`{}` is not one of the numbers; {}",
+            line.trim(),
+            ambiguous(&candidates)
+        )),
+    }
+}
+
 /// Let QEMU outlive this process and the terminal's Ctrl-C.
 fn detach(command: &mut Command) {
     #[cfg(unix)]
@@ -621,6 +846,19 @@ mod tests {
         assert_eq!(host_arch("x86_64"), Ok(Arch::X86_64));
         assert_eq!(host_arch("aarch64"), Ok(Arch::Aarch64));
         assert!(host_arch("riscv64").is_err());
+    }
+
+    #[test]
+    fn start_defaults_match_the_command_line() {
+        use clap::{Args, FromArgMatches};
+
+        let command = StartArgs::augment_args(clap::Command::new("start"));
+        let matches = command.try_get_matches_from(["start"]).unwrap();
+        let parsed = StartArgs::from_arg_matches(&matches).unwrap();
+        let defaults = StartArgs::defaults(None);
+        assert_eq!(parsed.resolution, defaults.resolution);
+        assert_eq!(parsed.display, defaults.display);
+        assert_eq!(parsed.accel, defaults.accel);
     }
 
     #[test]
