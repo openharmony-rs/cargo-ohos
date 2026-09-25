@@ -36,10 +36,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: oniro-emulator
+          - name: emulator
             runs-on: ubuntu-latest
-            emulator: true
-            # The emulator is x86_64; the other targets are built and inspected only.
+            emulator: x86_64
+            qemu: qemu-system-x86
+            # The other targets are built and inspected only.
             require_device_arches: x86_64
           - name: macos
             runs-on: macos-latest
@@ -87,18 +88,24 @@ jobs:
           version=$(sed -n 's/^ohos-test-runner = "=\(.*\)"$/\1/p' .github/ci-tools/Cargo.toml)
           cargo binstall --no-confirm --disable-strategies quick-install,compile \
             ohos-test-runner --version "${version:?not pinned in .github/ci-tools/Cargo.toml}"
-      # Without it the emulator falls back to TCG, where ohos-test-runner's device lock
-      # queues for tens of seconds.
-      - name: Enable KVM
+      - name: Install QEMU
         if: matrix.emulator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.qemu }}
+      - name: Enable KVM
+        if: matrix.emulator == 'x86_64'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Start the Oniro emulator
+      - name: Start the emulator
         id: emulator
         if: matrix.emulator
-        uses: openharmony-rs/emulator-action@v1
+        run: |
+          echo "dir=$HOME/.cache/cargo-ohos/ohos-emulator/instances/${{ matrix.emulator }}-phone" >> "$GITHUB_OUTPUT"
+          cargo run --locked -- ohos init emulator
+          cargo run --locked -- ohos emulator start --ephemeral
       - name: List the attached devices
         run: hdc list targets
       - name: Run the fixture matrix
@@ -110,11 +117,13 @@ jobs:
           CARGO_OHOS_TEST_REQUIRE_DEVICE_ARCHES: ${{ matrix.require_device_arches }}
           CARGO_OHOS_TEST_DOWNLOAD_PREBUILT: "19"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Composite actions cannot register a post: step, so keep the emulator log ourselves.
-      - name: Upload the emulator log
+      - name: Stop the emulator
+        if: always() && steps.emulator.outcome == 'success'
+        run: cargo run --locked -- ohos emulator stop
+      - name: Upload the emulator logs
         if: always() && matrix.emulator
         uses: actions/upload-artifact@v7
         with:
-          name: oniro-emulator-log-${{ matrix.name }}
-          path: ${{ steps.emulator.outputs.log-path }}
+          name: emulator-logs-${{ matrix.name }}
+          path: ${{ steps.emulator.outputs.dir }}/*.log
           if-no-files-found: warn
