@@ -12,6 +12,11 @@ updates:
     directory: "/.github/ci-tools"
     schedule:
       interval: weekly
+  # SpiderMonkey, see .github/mozjs-smoke/Cargo.toml.
+  - package-ecosystem: cargo
+    directory: "/.github/mozjs-smoke"
+    schedule:
+      interval: weekly
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

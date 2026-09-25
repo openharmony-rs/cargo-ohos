@@ -1,0 +1,78 @@
+name: SpiderMonkey
+
+# Builds SpiderMonkey from source on every host platform. Its build system re-synthesizes
+# compiler command lines and runs its own configure, so it trips over environment mistakes
+# that cc-rs and cmake tolerate, such as verbatim Windows paths (#11). The build takes long,
+# so this runs weekly and on changes to how the environment is derived.
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - src/build_env.rs
+      - src/prebuilt.rs
+      - src/sdk.rs
+      - src/toolchain.rs
+      - .github/mozjs-smoke/**
+      - .github/workflows/mozjs.yml
+
+permissions:
+  contents: read
+
+env:
+  MOZTOOLS_URL: https://github.com/servo/servo-build-deps/releases/download/msvc-deps/moztools-4.0.zip
+  MOZTOOLS_SHA256: cceb354767ef3dad8813e63cb95ed081814225bf5fa15bfa083aa8b31a339153
+
+jobs:
+  build:
+    name: from source (${{ matrix.os }})
+    if: github.event_name != 'schedule' || github.repository_owner == 'openharmony-rs'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-ohos
+      # Like mozjs's own macOS CI.
+      - if: runner.os == 'macOS'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install cargo-ohos
+        run: cargo install --locked --debug --path .
+      - name: Download the OpenHarmony SDK
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: cargo ohos init sdk --version 6.1 --components native
+      # mozjs_sys runs SpiderMonkey's build with the MSYS2 shell and make from MozTools.
+      - name: Install MozTools
+        if: runner.os == 'Windows'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/moztools.zip" "$MOZTOOLS_URL"
+          echo "$MOZTOOLS_SHA256  $RUNNER_TEMP/moztools.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/moztools.zip" -d "$RUNNER_TEMP"
+          echo "MOZTOOLS_PATH=$RUNNER_TEMP\\moztools-4.0" >> "$GITHUB_ENV"
+      - name: Build
+        working-directory: .github/mozjs-smoke
+        env:
+          MOZJS_FROM_SOURCE: "1"
+          # The SDK's clang is too old for SpiderMonkey.
+          CARGO_OHOS_DOWNLOAD_PREBUILT: "19"
+          GITHUB_TOKEN: ${{ github.token }}
+        run: cargo ohos build --locked --target aarch64
+      - name: Upload the configure log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: config-log-${{ runner.os }}
+          path: .github/mozjs-smoke/target/aarch64-unknown-linux-ohos/debug/build/mozjs_sys-*/out/build/config.log
+          if-no-files-found: ignore
