@@ -8,6 +8,6 @@ publish = false
 
 [dependencies]
 # Servo's configuration. Pinned, so that Dependabot proposes SpiderMonkey updates.
-mozjs = { version = "=0.26.3", default-features = false, features = ["intl", "libz-sys"] }
+mozjs = { git = "https://github.com/jschwe/mozjs", branch = "ohos-system-zlib", default-features = false, features = ["intl", "libz-sys"] }
 
 [workspace]
