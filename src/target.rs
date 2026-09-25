@@ -1,6 +1,6 @@
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Arch {
     Aarch64,
@@ -9,6 +9,18 @@ pub enum Arch {
     // serde's snake_case rule would produce `loong_arch64`.
     #[serde(rename = "loongarch64")]
     LoongArch64,
+}
+
+impl Arch {
+    /// The short name `Target::parse` accepts, e.g. `aarch64`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Arch::Aarch64 => "aarch64",
+            Arch::Armv7 => "armv7",
+            Arch::X86_64 => "x86_64",
+            Arch::LoongArch64 => "loongarch64",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
