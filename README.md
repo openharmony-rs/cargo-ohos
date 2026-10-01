@@ -45,9 +45,10 @@ therefore works with `--api` without a cargo-ohos release.
 The archive is checked against the SHA-256 the mirror publishes next to it, and, when the `gh` CLI
 is installed and authenticated, against the mirror's build provenance attestation via
 `gh attestation verify`. This is available for SDK releases 7.0 and newer.
-every component the release ships is installed, because hvigor refuses to build unless they are
-all present. A cross-compile needs less: `--components native,toolchains` is enough for
-`cargo ohos build`, and skips about a gigabyte of `ets`, `js` and `previewer`.
+
+By default every component the release ships is installed, because hvigor refuses to build
+unless they are all present. A cross-compile needs less: `--components native,toolchains` is
+enough for `cargo ohos build`, and skips about a gigabyte of `ets`, `js` and `previewer`.
 
 The components are unpacked as `<version>/<host>/<api level>/<component>`, the layout hvigor and
 DevEco Studio expect from an OpenHarmony SDK: point `DEVECO_SDK_HOME` at the `<host>` directory
