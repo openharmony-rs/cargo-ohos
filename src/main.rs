@@ -446,10 +446,10 @@ fn print_sdk_instructions(sdk: &sdk::Sdk) {
     let selected = sdk::Sdk::discover(None).ok().map(|sdk| sdk.native_root);
     println!("{}", selection_note(&sdk.native_root, selected.as_deref()));
     print_env_hint("OHOS_SDK_NATIVE", &sdk.native_root);
-    if let Some(root) = deveco_sdk_home(sdk) {
+    if let Some(root) = ohos_base_sdk_home(sdk) {
         println!();
-        println!("hvigor and DevEco Studio want the SDK root rather than the component:");
-        print_env_hint("DEVECO_SDK_HOME", &root);
+        println!("hvigor wants the SDK root to package OpenHarmony apps:");
+        print_env_hint("OHOS_BASE_SDK_HOME", &root);
     }
     println!();
     println!("Or pass it on each invocation with:");
@@ -489,7 +489,7 @@ fn print_env_hint(name: &str, value: &Path) {
 /// hvigor looks for `<root>/<api level>/<component>` and ignores components that
 /// sit anywhere else, which is the layout `init sdk` writes. The hint is only
 /// worth printing once the components an app build needs are actually there.
-fn deveco_sdk_home(sdk: &sdk::Sdk) -> Option<PathBuf> {
+fn ohos_base_sdk_home(sdk: &sdk::Sdk) -> Option<PathBuf> {
     let api_level_dir = sdk.native_root.parent()?;
     sdk::COMPONENTS
         .iter()

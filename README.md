@@ -51,10 +51,11 @@ unless they are all present. A cross-compile needs less: `--components native,to
 enough for `cargo ohos build`, and skips about a gigabyte of `ets`, `js` and `previewer`.
 
 The components are unpacked as `<version>/<host>/<api level>/<component>`, the layout hvigor and
-DevEco Studio expect from an OpenHarmony SDK: point `DEVECO_SDK_HOME` at the `<host>` directory
-and an app build finds them. The mirror only publishes the OpenHarmony SDK, so a HarmonyOS build - which
-wants `default/openharmony` next to `default/hms` and an `sdk-pkg.json` - still needs the SDK from
-DevEco Studio or the HarmonyOS command line tools.
+DevEco Studio expect from an OpenHarmony SDK: point `OHOS_BASE_SDK_HOME` at the `<host>` directory
+and an OpenHarmony app build finds them. The mirror only publishes the OpenHarmony SDK, so a
+HarmonyOS build - which finds its SDK through `DEVECO_SDK_HOME` and wants `default/openharmony`
+next to `default/hms` and an `sdk-pkg.json` - still needs the SDK from DevEco Studio or the
+HarmonyOS command line tools.
 
 `cargo ohos` falls back to the newest SDK in this cache when no SDK is configured, so a download
 is enough to get going; the command still prints how to persist `OHOS_SDK_NATIVE` for other tools,
