@@ -35,6 +35,9 @@ pub struct Config {
     /// SDK's, e.g. an unpacked prebuilt from openharmony-rs/ohos-llvm-toolchains.
     pub llvm: Option<PathBuf>,
     pub no_inline_flags: bool,
+    /// The `--manifest-path` of the cargo command, which selects the target
+    /// directory instead of the working directory.
+    pub manifest_path: Option<PathBuf>,
 }
 
 impl Config {
@@ -44,6 +47,7 @@ impl Config {
             sdk: None,
             llvm: None,
             no_inline_flags: false,
+            manifest_path: None,
         }
     }
 
@@ -193,7 +197,14 @@ fn build_env_map(
     env.insert(format!("CMAKE_CXX_COMPILER_{rust_u}"), clangxx.clone());
     if let Some(sdk_file) = &sdk.cmake_toolchain_file {
         let ninja = sdk.ninja.as_deref();
-        let file = generate_cmake_toolchain(sdk_file, ninja, toolchain, flags, target)?;
+        let file = generate_cmake_toolchain(
+            sdk_file,
+            ninja,
+            toolchain,
+            flags,
+            target,
+            config.manifest_path.as_deref(),
+        )?;
         env.insert(format!("CMAKE_TOOLCHAIN_FILE_{rust_u}"), posix(&file));
         if ninja.is_some() && !cmake_generator_configured(rust, &rust_u) {
             env.insert(format!("CMAKE_GENERATOR_{rust_u}"), "Ninja".to_owned());
@@ -252,6 +263,7 @@ fn generate_cmake_toolchain(
     toolchain: &Toolchain,
     flags: &Flags,
     target: &Target,
+    manifest_path: Option<&Path>,
 ) -> Result<PathBuf, Error> {
     let cflags = flags.cflags.join(" ");
     let cxxflags = flags.cxxflags.join(" ");
@@ -285,7 +297,7 @@ fn generate_cmake_toolchain(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
-    let dest = generated_dir()?
+    let dest = generated_dir(manifest_path)?
         .join(format!("{}-{key}", target.clang_triple))
         .join("ohos.toolchain.cmake");
     let dest = std::path::absolute(&dest).map_err(|source| Error::Io {
@@ -313,24 +325,26 @@ fn write_if_changed(dest: &Path, contents: &str) -> Result<(), Error> {
     })
 }
 
-fn generated_dir() -> Result<PathBuf, Error> {
+fn generated_dir(manifest_path: Option<&Path>) -> Result<PathBuf, Error> {
     let base = match std::env::var_os("CARGO_TARGET_DIR") {
         Some(dir) => PathBuf::from(dir),
-        None => cargo_target_directory()?,
+        None => cargo_target_directory(manifest_path)?,
     };
     Ok(base.join("ohos-toolchain"))
 }
 
 // A cwd-relative `target/` would be wrong in a workspace member directory and
 // would ignore `build.target-dir` configuration.
-fn cargo_target_directory() -> Result<PathBuf, Error> {
+fn cargo_target_directory(manifest_path: Option<&Path>) -> Result<PathBuf, Error> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let output = std::process::Command::new(cargo)
-        .args(["metadata", "--format-version", "1", "--no-deps"])
-        .output()
-        .map_err(|source| Error::CargoMetadata {
-            message: source.to_string(),
-        })?;
+    let mut command = std::process::Command::new(cargo);
+    command.args(["metadata", "--format-version", "1", "--no-deps"]);
+    if let Some(manifest_path) = manifest_path {
+        command.arg("--manifest-path").arg(manifest_path);
+    }
+    let output = command.output().map_err(|source| Error::CargoMetadata {
+        message: source.to_string(),
+    })?;
     if !output.status.success() {
         return Err(Error::CargoMetadata {
             message: String::from_utf8_lossy(&output.stderr).trim().to_owned(),

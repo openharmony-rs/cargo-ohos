@@ -8,6 +8,7 @@
 - `cargo ohos run`/`test`/`bench` run on the running emulator of the target's architecture when
   no device is selected, ask which device to use when several can run the binaries, and take
   `--emulator[=NAME]` to start and use one explicitly.
+- `cargo ohos <cargo command> --manifest-path <path>` now works outside the project's directory.
 
 ## 0.3.3
 
