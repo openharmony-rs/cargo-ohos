@@ -41,30 +41,38 @@ const X86_64: Profile = Profile {
     smp: 4,
     kernel: "bzImage",
     block_device: "virtio-blk-pci",
-    net_device: "virtio-net-pci",
-    extra_args: &[],
-    bootargs: "oemmode=rd buildvariant=eng developer_mode=1 console=ttyS0,115200 sn=0023456789 \
+    net_device: "virtio-net-pci,mac=52:54:00:12:34:56",
+    extra_args: &[
+        "-global",
+        "ICH9-LPC.disable_s3=1",
+        "-global",
+        "ICH9-LPC.disable_s4=1",
+    ],
+    bootargs: "oemmode=rd loglevel=4 snd-ens1370.index=0 snd-aloop.index=1 \
+        snd-aloop.id=QemuCapture snd-aloop.pcm_substreams=1 buildvariant=eng developer_mode=1 \
+        console=ttyS0,115200 sn=0023456789 \
         init=/bin/init hardware=virt root=/dev/ram0 rw ip=dhcp ohos.boot.hardware=virt \
         ohos.required_mount.system=/dev/block/vdb@/usr@ext4@ro,barrier=1@wait,required \
         ohos.required_mount.vendor=/dev/block/vdc@/vendor@ext4@ro,barrier=1@wait,required \
         ohos.required_mount.sys_prod=/dev/block/vdd@/sys_prod@ext4@rw,barrier=1@wait,required \
         ohos.required_mount.chip_prod=/dev/block/vde@/chip_prod@ext4@rw,barrier=1@wait,required \
-        ohos.required_mount.data=/dev/block/vdf@/data@f2fs@nosuid,nodev,noatime@wait,required,\
-        reservedsize=104857600",
+        ohos.required_mount.data=/dev/block/vdf@/data@f2fs@nosuid,nodev,noatime,usrquota,grpquota,\
+        prjquota@wait,required,reservedsize=104857600",
 };
 
 /// The virtio-mmio block devices enumerate in reverse, so `userdata` is `vda`.
-const AARCH64_BOOTARGS: &str = "oemmode=rd buildvariant=eng developer_mode=1 \
+const AARCH64_BOOTARGS: &str = "oemmode=rd snd-ens1370.index=0 snd-aloop.index=1 \
+    snd-aloop.id=QemuCapture snd-aloop.pcm_substreams=1 buildvariant=eng developer_mode=1 \
     default_boot_device=a003e00.virtio_mmio sn=0023456789 ip=dhcp loglevel=4 \
     console=ttyAMA0,115200 init=/bin/init ohos.boot.hardware=virt root=/dev/ram0 rw \
     ohos.required_mount.system=/dev/block/vde@/usr@ext4@ro,barrier=1@wait,required \
     ohos.required_mount.vendor=/dev/block/vdd@/vendor@ext4@ro,barrier=1@wait,required \
     ohos.required_mount.sys_prod=/dev/block/vdc@/sys_prod@ext4@rw,barrier=1@wait,required \
     ohos.required_mount.chip_prod=/dev/block/vdb@/chip_prod@ext4@rw,barrier=1@wait,required \
-    ohos.required_mount.data=/dev/block/vda@/data@f2fs@nosuid,nodev,noatime@wait,required,\
-    reservedsize=104857600";
+    ohos.required_mount.data=/dev/block/vda@/data@f2fs@nosuid,nodev,noatime,usrquota,grpquota,\
+    prjquota@wait,required,reservedsize=104857600";
 
-const AARCH64_EXTRA_ARGS: &[&str] = &["-k", "en-us", "-rtc", "base=localtime,clock=host"];
+const AARCH64_EXTRA_ARGS: &[&str] = &["-k", "en-us", "-rtc", "base=utc,clock=host"];
 
 const AARCH64: Profile = Profile {
     qemu: "qemu-system-aarch64",

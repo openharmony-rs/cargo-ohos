@@ -10,8 +10,8 @@ unchanged from its archives, and the unit test `matches_the_pinned_launchers` in
 
 | directory | from | sha256 |
 | --- | --- | --- |
-| `v20260919/x86_64` | x86_64 phone and 2in1 | `fb67d02e514f1d5b94feccf255f1c08ad4aaa27fd1371200104d7ec18b0801dd` |
-| `v20260919/aarch64` | arm64 phone and 2in1 | `9d20f7af0dc9d719fefd2193905f93f0a3657f434bda3dea56f59800be97f803` |
+| `v20261107/x86_64` | x86_64 phone and 2in1 | `dc077b2d569566a5578177db99ed461e23b5690b721c083bda2aafb7ba6070b8` |
+| `v20261107/aarch64` | arm64 phone and 2in1 | `31f4762fb93663163ec3dc813a8d3d11eba913a69ba3396aa682806fe52ef9c4` |
 
 The scripts carry their original license headers (Apache-2.0, Institute of Software, Chinese
 Academy of Sciences); the repository they come from is MIT licensed.
