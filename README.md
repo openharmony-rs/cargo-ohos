@@ -165,7 +165,7 @@ cargo ohos emulator stop
 `cargo-ohos` installs one release of the images, pinned by its tag and the SHA-256 of every archive,
 so an image cannot change without a `cargo-ohos` release. The images are built by the
 harmony-contrib project and carry no build provenance attestation. They are unpacked next to the
-SDKs in the cache, as sparse files: a phone image takes about 1.5 GB.
+SDKs in the cache, as sparse files: a phone image takes about 2.2 GB.
 
 The image needs hardware acceleration: KVM on Linux (`/dev/kvm` must be readable and writable),
 Hypervisor.framework on macOS and WHPX on Windows. If the hypervisor is not usable, `emulator

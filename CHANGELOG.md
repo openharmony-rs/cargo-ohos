@@ -3,6 +3,7 @@
 ## Unreleased
 
 - On Windows, `LIBCLANG_PATH` no longer points at a toolchain's `lib` directory when that only holds the import library `libclang.dll.a`.
+- The emulator images move to harmony-contrib/ohos-qemu v20261107; older instances need `cargo ohos emulator reset`.
 
 ## 0.3.4
 
