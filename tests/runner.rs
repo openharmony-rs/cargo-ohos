@@ -417,7 +417,7 @@ mod emulator {
                 .join(format!("cargo-ohos/ohos-emulator/instances/{arch}-{index}"));
             std::fs::create_dir_all(&dir).unwrap();
             let config = format!(
-                r#"{{"arch": "{arch}", "device": "phone", "release": "v20260919", "hdc_port": {}}}"#,
+                r#"{{"arch": "{arch}", "device": "phone", "release": "v20261106", "hdc_port": {}}}"#,
                 6000 + index
             );
             std::fs::write(dir.join("instance.json"), config).unwrap();

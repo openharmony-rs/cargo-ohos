@@ -101,6 +101,10 @@ impl Launch<'_> {
         let mut push = |values: &[&str]| args.extend(values.iter().map(OsString::from));
         let (width, height) = self.resolution;
         push(&[
+            "-audiodev",
+            "none,id=ohos_audio",
+            "-device",
+            "es1370,audiodev=ohos_audio",
             "-device",
             &format!("virtio-gpu-pci,xres={width},yres={height}"),
         ]);
@@ -735,7 +739,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn matches_the_pinned_launchers() {
-        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/emulator/v20260919");
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/emulator/v20261106");
         if !fixtures.is_dir() || Command::new("bash").arg("--version").output().is_err() {
             eprintln!(
                 "SKIP matches_the_pinned_launchers: needs bash and {}",

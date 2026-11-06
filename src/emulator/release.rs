@@ -13,7 +13,7 @@ use crate::download;
 use crate::target::Arch;
 
 const REPOSITORY: &str = "harmony-contrib/ohos-qemu";
-pub const TAG: &str = "v20260919";
+pub const TAG: &str = "v20261106";
 pub const CACHE_SUBDIR: &str = "ohos-emulator";
 /// The checksums of the files in a package, at the package root.
 const CHECKSUMS: &str = "SHA256SUMS";
@@ -54,29 +54,29 @@ pub const IMAGES: &[Image] = &[
         arch: Arch::X86_64,
         device: Device::Phone,
         asset: "openharmony-qemu-x86_64-x86_64_virt-phone.tar.gz",
-        sha256: "08d35399119ec9b87d564cd8bf024e8a189921f5bacf09da889b7b223848a488",
-        size: 674_699_565,
+        sha256: "d412dacad83f2622ee675bfcac8e3ccfef7f113c2c1ed178845761efd61e0644",
+        size: 1_136_703_893,
     },
     Image {
         arch: Arch::X86_64,
         device: Device::TwoInOne,
         asset: "openharmony-qemu-x86_64-x86_64_virt-2in1.tar.gz",
-        sha256: "7b8745cc23c0b63c079be98f8b75e4ebeee1edad247ae68a399d0feeaa4e26cb",
-        size: 926_472_429,
+        sha256: "d46ad4e4ac79c2ccb16dd2e4580edbd590d55d902f255e34d66bd941a44e96fa",
+        size: 1_131_983_383,
     },
     Image {
         arch: Arch::Aarch64,
         device: Device::Phone,
         asset: "openharmony-qemu-arm64-arm64_virt-phone.tar.gz",
-        sha256: "eda208b8ae5375e42af0f1ad6756d9e3ba57dd6ee9b13c2c7917c46b4ab14710",
-        size: 670_646_424,
+        sha256: "4268a5d9831d30f052ceb8f71b9393c748ac3aa1e01dc7a2d31317effbbcf76f",
+        size: 1_056_870_897,
     },
     Image {
         arch: Arch::Aarch64,
         device: Device::TwoInOne,
         asset: "openharmony-qemu-arm64-arm64_virt-2in1.tar.gz",
-        sha256: "f742ca00e2c0a8eba02e753f6949ddc1243a31916432400f03b2292d8de76852",
-        size: 919_884_446,
+        sha256: "b4d2d2d2fbfc7e18fadbac454ee6ec92f8e97e902b4f2d902001e4e3592e5d1e",
+        size: 1_052_141_441,
     },
 ];
 
@@ -262,6 +262,7 @@ fn parse_checksums(text: &str) -> Result<Vec<(String, PathBuf)>, String> {
                 .ok_or_else(|| format!("malformed digest in `{line}`"))?;
             // `sha256sum` marks files read in binary mode with a `*`.
             let path = Path::new(path.trim_start_matches(' ').trim_start_matches('*'));
+            let path = path.strip_prefix(".").unwrap_or(path);
             let mut components = path.components();
             if !components.all(|component| matches!(component, Component::Normal(_))) {
                 return Err(format!("unexpected path in `{line}`"));
@@ -400,7 +401,7 @@ mod tests {
         let image = Image::find(Arch::Aarch64, Device::TwoInOne).unwrap();
         assert_eq!(
             image.url(),
-            "https://github.com/harmony-contrib/ohos-qemu/releases/download/v20260919/\
+            "https://github.com/harmony-contrib/ohos-qemu/releases/download/v20261106/\
              openharmony-qemu-arm64-arm64_virt-2in1.tar.gz"
         );
         assert_eq!(image.name(), "aarch64-2in1");
@@ -423,7 +424,7 @@ mod tests {
     fn parses_checksum_listings() {
         let digest = sha256(b"x");
         let entries = parse_checksums(&format!(
-            "{digest}  images/system.img\n\n{}  *launch/linux.sh\n",
+            "{digest}  images/system.img\n\n{}  *launch/linux.sh\n{digest}  ./README.md\n",
             digest.to_uppercase()
         ))
         .unwrap();
@@ -432,11 +433,13 @@ mod tests {
             [
                 (digest.clone(), PathBuf::from("images/system.img")),
                 (digest.clone(), PathBuf::from("launch/linux.sh")),
+                (digest.clone(), PathBuf::from("README.md")),
             ]
         );
 
         for bad in [
             format!("{digest}  ../escape"),
+            format!("{digest}  ./../escape"),
             format!("{digest}  /etc/passwd"),
             digest.clone(),
             "abc  images/system.img".to_owned(),

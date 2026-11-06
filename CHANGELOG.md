@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The emulator images move to harmony-contrib/ohos-qemu v20261106; older instances need `cargo ohos emulator reset`.
+
 ## 0.3.4
 
 - Add `cargo ohos init emulator` to download an OpenHarmony 7.0 QEMU image of
