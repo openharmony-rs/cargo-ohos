@@ -107,7 +107,19 @@ impl Qmp {
 
     /// Run `command` and return its result, skipping the events QEMU sends in between.
     pub fn execute(&mut self, command: &str) -> std::io::Result<Value> {
-        writeln!(self.writer, "{}", serde_json::json!({ "execute": command }))?;
+        self.send(command, serde_json::json!({ "execute": command }))
+    }
+
+    /// Run `command` with `arguments`, like [`Qmp::execute`].
+    pub fn execute_with(&mut self, command: &str, arguments: Value) -> std::io::Result<Value> {
+        self.send(
+            command,
+            serde_json::json!({ "execute": command, "arguments": arguments }),
+        )
+    }
+
+    fn send(&mut self, command: &str, message: Value) -> std::io::Result<Value> {
+        writeln!(self.writer, "{message}")?;
         loop {
             let mut message = self.read_message()?;
             if let Some(result) = message.get_mut("return") {
@@ -130,6 +142,25 @@ impl Qmp {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .ok_or_else(|| std::io::Error::other(format!("unexpected query-status {result}")))
+    }
+
+    /// Grow the disk of the block device `device` to `size` bytes, unless it is that big already.
+    pub fn grow_disk(&mut self, device: &str, size: u64) -> std::io::Result<()> {
+        let blocks = self.execute("query-block")?;
+        let current = blocks
+            .as_array()
+            .and_then(|blocks| blocks.iter().find(|block| block["device"] == device))
+            .and_then(|block| block["inserted"]["image"]["virtual-size"].as_u64())
+            .ok_or_else(|| {
+                std::io::Error::other(format!("QEMU reports no disk size for `{device}`"))
+            })?;
+        if current < size {
+            self.execute_with(
+                "block_resize",
+                serde_json::json!({ "device": device, "size": size }),
+            )?;
+        }
+        Ok(())
     }
 
     /// Wait up to `timeout` for QEMU to close the connection, which it does when it exits.
@@ -219,6 +250,46 @@ mod tests {
             ]
         );
         assert!(qmp.wait_for_exit(Duration::from_secs(5)));
+    }
+
+    const QUERY_BLOCK: &str = r#"{"return": [{"device": "system", "inserted": {"image": {"virtual-size": 2147483648}}}, {"device": "userdata", "inserted": {"image": {"virtual-size": 2147483648}}}]}"#;
+
+    fn parse(lines: &[String]) -> Vec<Value> {
+        lines
+            .iter()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn grows_a_smaller_disk() {
+        let (port, server) = serve(vec![r#"{"return": {}}"#, QUERY_BLOCK, r#"{"return": {}}"#]);
+        let mut qmp = Qmp::connect(&Endpoint::Tcp(port)).unwrap();
+        qmp.grow_disk("userdata", 8 << 30).unwrap();
+        assert_eq!(
+            parse(&server.join().unwrap()[1..]),
+            [
+                serde_json::json!({ "execute": "query-block" }),
+                serde_json::json!({
+                    "execute": "block_resize",
+                    "arguments": { "device": "userdata", "size": 8_u64 << 30 },
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_a_disk_that_is_big_enough() {
+        let (port, server) = serve(vec![r#"{"return": {}}"#, QUERY_BLOCK, QUERY_BLOCK]);
+        let mut qmp = Qmp::connect(&Endpoint::Tcp(port)).unwrap();
+        qmp.grow_disk("userdata", 2 << 30).unwrap();
+        let error = qmp.grow_disk("missing", 1).unwrap_err();
+        assert!(error.to_string().contains("`missing`"), "{error}");
+        let received = server.join().unwrap();
+        assert!(
+            received.iter().all(|line| !line.contains("block_resize")),
+            "{received:?}"
+        );
     }
 
     #[test]

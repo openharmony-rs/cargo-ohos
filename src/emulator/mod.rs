@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use hdc::{Hdc, TargetState};
 use instance::{Instance, Runtime};
-use profile::Profile;
+use profile::{Profile, DATA_DRIVE};
 use qemu::{Accel, Console, Display, Host, Launch};
 use qmp::{Endpoint, Qmp};
 use ready::Boot;
@@ -29,6 +29,7 @@ use crate::target::Arch;
 const QMP_TIMEOUT: Duration = Duration::from_secs(10);
 const BOOT_TIMEOUT: Duration = Duration::from_secs(300);
 const FIRST_VNC_PORT: u16 = 5921;
+const DEFAULT_DATA_SIZE_GIB: u64 = 8;
 
 /// `cargo ohos init emulator`.
 pub fn init(device: Device, list: bool) -> Result<(), String> {
@@ -138,6 +139,15 @@ pub struct StartArgs {
     /// Guest memory in MiB.
     #[arg(long, value_name = "MIB")]
     memory: Option<u32>,
+    /// The size of the guest's `/data` disk in GiB. A smaller disk is grown before the guest
+    /// boots, and the guest grows `/data` to fill it. Disks are never shrunk.
+    #[arg(
+        long,
+        value_name = "GIB",
+        default_value_t = DEFAULT_DATA_SIZE_GIB,
+        value_parser = clap::value_parser!(u64).range(1..=1024)
+    )]
+    data_size: u64,
     /// Resolution of the guest display.
     #[arg(long, value_name = "WxH", default_value = "800x500", value_parser = parse_resolution)]
     resolution: (u32, u32),
@@ -176,6 +186,7 @@ impl StartArgs {
             cpu: None,
             smp: None,
             memory: None,
+            data_size: DEFAULT_DATA_SIZE_GIB,
             resolution: DEFAULT_RESOLUTION,
             hdc_port: None,
             qemu: None,
@@ -321,6 +332,7 @@ fn start(args: StartArgs) -> Result<Started, String> {
         images: &images,
         overlays: overlays.as_deref(),
         snapshot: args.ephemeral,
+        paused: true,
         accel,
         cpu: args.cpu.as_deref(),
         memory_mib: args.memory.unwrap_or(profile.memory_mib),
@@ -359,6 +371,11 @@ fn start(args: StartArgs) -> Result<Started, String> {
             instance.clear_runtime();
             return Err(error);
         }
+        if let Err(error) = resume(&qmp, args.data_size) {
+            quit(&qmp);
+            instance.clear_runtime();
+            return Err(error);
+        }
         let hdc = hdc.expect("found for every start that waits");
         let booting = instance.clone();
         let qmp = qmp.clone();
@@ -392,6 +409,11 @@ fn start(args: StartArgs) -> Result<Started, String> {
     if let Err(error) = wait_for_qmp(&mut child, &qmp) {
         instance.clear_runtime();
         return Err(format!("{error}:\n{}", tail(&instance.qemu_log(), 20)));
+    }
+    if let Err(error) = resume(&qmp, args.data_size) {
+        quit(&qmp);
+        instance.clear_runtime();
+        return Err(error);
     }
     eprintln!("note: started emulator `{name}` with {}", accel.name());
     if let Some(hdc) = &hdc {
@@ -661,6 +683,18 @@ fn wait_for_qmp(child: &mut Child, qmp: &Endpoint) -> Result<(), String> {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// Grow the data disk to `size_gib` and let the guest run. QEMU starts paused, so that the
+/// guest's init sees the final disk size when it grows the file system of `/data`.
+fn resume(qmp: &Endpoint, size_gib: u64) -> Result<(), String> {
+    let fail = |e: std::io::Error| format!("could not start the guest: {e}");
+    let mut connection = Qmp::connect(qmp).map_err(fail)?;
+    connection
+        .grow_disk(DATA_DRIVE, size_gib << 30)
+        .map_err(fail)?;
+    connection.execute("cont").map_err(fail)?;
+    Ok(())
 }
 
 /// Quit QEMU and wait for it to go.

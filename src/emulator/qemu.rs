@@ -60,6 +60,8 @@ pub struct Launch<'a> {
     pub overlays: Option<&'a Path>,
     /// Discard the writes of this run.
     pub snapshot: bool,
+    /// Wait for QMP's `cont` before running the guest.
+    pub paused: bool,
     pub accel: Accel,
     pub cpu: Option<&'a str>,
     pub memory_mib: u32,
@@ -164,6 +166,9 @@ impl Launch<'_> {
         }
         if self.snapshot {
             push(&["-snapshot"]);
+        }
+        if self.paused {
+            push(&["-S"]);
         }
         push(&["-append", profile.bootargs]);
         if let Some(endpoint) = self.qmp {
@@ -601,6 +606,7 @@ mod tests {
             images,
             overlays: None,
             snapshot: false,
+            paused: false,
             accel: Accel::Kvm,
             cpu: None,
             memory_mib: 4096,
@@ -627,6 +633,14 @@ mod tests {
         let args = text(&launch(Path::new("/img"), Console::Stdio("/log".into())).command_line());
         assert!(args.contains("hostfwd=tcp:127.0.0.1:5556-:5555"), "{args}");
         assert!(args.contains("-accel kvm -cpu max"), "{args}");
+    }
+
+    #[test]
+    fn starts_paused_on_request() {
+        let mut launch = launch(Path::new("/img"), Console::File("/log".into()));
+        assert!(!launch.command_line().contains(&"-S".into()));
+        launch.paused = true;
+        assert!(launch.command_line().contains(&"-S".into()));
     }
 
     #[test]
@@ -758,6 +772,7 @@ mod tests {
                 images: Path::new("/IMG"),
                 overlays: None,
                 snapshot: false,
+                paused: false,
                 accel: Accel::Kvm,
                 cpu: None,
                 memory_mib: profile.memory_mib,

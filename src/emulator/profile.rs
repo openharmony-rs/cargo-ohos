@@ -28,8 +28,11 @@ pub const DRIVES: &[&str] = &[
     "vendor",
     "sys_prod",
     "chip_prod",
-    "userdata",
+    DATA_DRIVE,
 ];
+
+/// The drive holding `/data`.
+pub const DATA_DRIVE: &str = "userdata";
 
 pub const RAMDISK: &str = "ramdisk.img";
 

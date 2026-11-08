@@ -180,6 +180,9 @@ hdc daemon runs as root and accepts every connection. Useful options:
 - `--display vnc|gtk|sdl|cocoa` shows the screen, by default there is none.
 - `--foreground` keeps QEMU in the terminal with the guest's serial console, `Ctrl-A X` quits.
 - `--ephemeral` discards everything the guest writes during this run.
+- `--data-size <GIB>` sets the size of the guest's `/data`, 8 GiB by default. The image's 2 GiB
+  disk is grown before the guest boots, which then grows `/data` to fill it; disks are never
+  shrunk.
 - `-- <QEMU arguments>` passes further arguments to QEMU.
 
 An emulator is an instance named `<arch>-<device>` by default; `emulator start my-name` creates
