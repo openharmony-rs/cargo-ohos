@@ -234,13 +234,14 @@ impl Instance {
         self.dir.join(OVERLAYS)
     }
 
-    /// The overlays, if the instance has them.
+    /// The overlays, if the instance has them for the current images.
     pub fn overlays(&self) -> Option<PathBuf> {
         let dir = self.overlay_dir();
-        DRIVES
-            .iter()
-            .all(|drive| dir.join(format!("{drive}.qcow2")).is_file())
-            .then_some(dir)
+        (self.config.release == TAG
+            && DRIVES
+                .iter()
+                .all(|drive| dir.join(format!("{drive}.qcow2")).is_file()))
+        .then_some(dir)
     }
 
     /// Create the overlays of the drives which have none. Overlays of another release's images
@@ -543,5 +544,19 @@ mod tests {
         instance.reset().unwrap();
         assert_eq!(instance.config.release, TAG);
         assert!(!instance.overlay_dir().exists());
+    }
+
+    #[test]
+    fn ignores_overlays_of_another_release() {
+        let root = TestDir::new();
+        let mut instance =
+            Instance::create_in(&root.0, "a", Arch::X86_64, Device::Phone, Some(1)).unwrap();
+        std::fs::create_dir(instance.overlay_dir()).unwrap();
+        for drive in DRIVES {
+            File::create(instance.overlay_dir().join(format!("{drive}.qcow2"))).unwrap();
+        }
+        assert_eq!(instance.overlays(), Some(instance.overlay_dir()));
+        instance.config.release = "v20260818".to_owned();
+        assert_eq!(instance.overlays(), None);
     }
 }
