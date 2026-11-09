@@ -31,7 +31,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Not ubuntu-latest: Ubuntu 26.04 has no libxml2.so.2, which the lld of the prebuilt
+        # LLVM 19 needs (#12).
+        os: [ubuntu-24.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
     defaults:

@@ -36,8 +36,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: emulator
-            runs-on: ubuntu-latest
+          - name: linux, emulator
+            # Not ubuntu-latest: Ubuntu 26.04 has no libxml2.so.2, which the lld of the
+            # prebuilt LLVM 19 needs (#12).
+            runs-on: ubuntu-24.04
             emulator: x86_64
             qemu: qemu-system-x86
             # The other targets are built and inspected only.
@@ -124,6 +126,6 @@ jobs:
         if: always() && matrix.emulator
         uses: actions/upload-artifact@v7
         with:
-          name: emulator-logs-${{ matrix.name }}
+          name: emulator-logs-${{ matrix.emulator }}
           path: ${{ steps.emulator.outputs.dir }}/*.log
           if-no-files-found: warn
