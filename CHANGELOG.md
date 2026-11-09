@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- On Windows, `LIBCLANG_PATH` no longer points at a toolchain's `lib` directory when that only holds the import library `libclang.dll.a`.
+
 ## 0.3.4
 
 - Add `cargo ohos init emulator` to download an OpenHarmony 7.0 QEMU image of

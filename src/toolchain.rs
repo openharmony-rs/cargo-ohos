@@ -70,7 +70,7 @@ impl Toolchain {
             strip: tool(&bin, "llvm-strip")?,
             objcopy: tool(&bin, "llvm-objcopy")?,
             readelf: tool(&bin, "llvm-readelf")?,
-            libclang_dir: libclang_dir(&root)?,
+            libclang_dir: libclang_dir(&root, std::env::consts::OS)?,
             root,
         })
     }
@@ -110,16 +110,16 @@ fn tool(bin_dir: &Path, name: &str) -> Result<PathBuf, Error> {
 // clang-sys searches `LIBCLANG_PATH` first but silently falls back to a host
 // libclang when it holds none, so bindgen would parse with an unpinned
 // compiler. Validate up front like the other tool paths.
-fn libclang_dir(root: &Path) -> Result<PathBuf, Error> {
+fn libclang_dir(root: &Path, os: &str) -> Result<PathBuf, Error> {
     // LLVM installs the DLL next to the executables on Windows.
-    let dirs: &[&str] = if cfg!(windows) {
+    let dirs: &[&str] = if os == "windows" {
         &["lib", "bin"]
     } else {
         &["lib"]
     };
     for dir in dirs {
         let dir = root.join(dir);
-        if contains_libclang(&dir) {
+        if contains_libclang(&dir, os) {
             return Ok(dir);
         }
     }
@@ -128,20 +128,108 @@ fn libclang_dir(root: &Path) -> Result<PathBuf, Error> {
     })
 }
 
-fn contains_libclang(dir: &Path) -> bool {
-    let ext = if cfg!(windows) {
-        ".dll"
-    } else if cfg!(target_os = "macos") {
-        ".dylib"
-    } else {
-        ".so"
-    };
+fn contains_libclang(dir: &Path, os: &str) -> bool {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return false;
     };
-    entries.flatten().any(|entry| {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        name.starts_with("libclang.") && name.contains(ext)
-    })
+    entries
+        .flatten()
+        .any(|entry| is_libclang(&entry.file_name().to_string_lossy(), os))
+}
+
+/// Whether clang-sys loads libclang from a file named `name` on `os`, as named by
+/// `std::env::consts::OS`. Not every file named `libclang.*` is one: on Windows, `lib/` may
+/// hold only the import library `libclang.dll.a`.
+fn is_libclang(name: &str, os: &str) -> bool {
+    match os {
+        "windows" => name == "libclang.dll" || name == "clang.dll",
+        "macos" => name == "libclang.dylib",
+        _ => name == "libclang.so" || name.starts_with("libclang.so."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    static NEXT_TEMP_DIR: AtomicUsize = AtomicUsize::new(0);
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            let id = NEXT_TEMP_DIR.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "cargo-ohos-toolchain-test-{}-{id}",
+                std::process::id()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn touch(&self, relative: &str) {
+            let path = self.0.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"").unwrap();
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn recognizes_the_libraries_clang_sys_loads() {
+        assert!(is_libclang("libclang.dll", "windows"));
+        assert!(is_libclang("clang.dll", "windows"));
+        assert!(!is_libclang("libclang.dll.a", "windows"));
+        assert!(!is_libclang("libclang.lib", "windows"));
+        assert!(is_libclang("libclang.dylib", "macos"));
+        assert!(!is_libclang("libclang.so", "macos"));
+        assert!(is_libclang("libclang.so", "linux"));
+        assert!(is_libclang("libclang.so.19.1", "linux"));
+        assert!(!is_libclang("libclang.a", "linux"));
+        assert!(!is_libclang("libclang-cpp.so", "linux"));
+    }
+
+    /// A toolchain built with MinGW keeps the import library `libclang.dll.a` in `lib/` and the
+    /// DLL in `bin/`.
+    #[test]
+    fn finds_the_dll_next_to_an_import_library_on_windows() {
+        let root = TestDir::new();
+        root.touch("lib/libclang.dll.a");
+        root.touch("bin/libclang.dll");
+        assert_eq!(
+            libclang_dir(&root.0, "windows").unwrap(),
+            root.0.join("bin")
+        );
+
+        root.touch("lib/libclang.dll");
+        assert_eq!(
+            libclang_dir(&root.0, "windows").unwrap(),
+            root.0.join("lib")
+        );
+    }
+
+    #[test]
+    fn rejects_a_toolchain_without_libclang() {
+        let root = TestDir::new();
+        root.touch("lib/libclang.dll.a");
+        root.touch("lib/libclang.a");
+        for os in ["windows", "macos", "linux"] {
+            assert!(
+                matches!(
+                    libclang_dir(&root.0, os),
+                    Err(Error::MissingLibclang { .. })
+                ),
+                "{os}"
+            );
+        }
+        root.touch("lib/libclang.so.19");
+        assert_eq!(libclang_dir(&root.0, "linux").unwrap(), root.0.join("lib"));
+    }
 }
