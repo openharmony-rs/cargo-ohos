@@ -37,9 +37,7 @@ jobs:
       matrix:
         include:
           - name: linux, emulator
-            # Not ubuntu-latest: Ubuntu 26.04 has no libxml2.so.2, which the lld of the
-            # prebuilt LLVM 19 needs (#12).
-            runs-on: ubuntu-24.04
+            runs-on: ubuntu-latest
             emulator: x86_64
             qemu: qemu-system-x86
             # The other targets are built and inspected only.
@@ -117,7 +115,7 @@ jobs:
           # Missing prerequisites and unreachable devices fail the job instead of skipping.
           CARGO_OHOS_TEST_REQUIRE: "1"
           CARGO_OHOS_TEST_REQUIRE_DEVICE_ARCHES: ${{ matrix.require_device_arches }}
-          CARGO_OHOS_TEST_DOWNLOAD_PREBUILT: "19"
+          CARGO_OHOS_TEST_DOWNLOAD_PREBUILT: "21"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Stop the emulator
         if: always() && steps.emulator.outcome == 'success'

@@ -51,7 +51,7 @@ the device's own copy.
   (and `armv7-`/`x86_64-`).
 * For the `prebuilt-*` configurations, an external LLVM toolchain:
   `$CARGO_OHOS_TEST_LLVM` pointing at an unpacked prebuilt's `llvm` directory, or
-  `$CARGO_OHOS_TEST_DOWNLOAD_PREBUILT=19` to let `cargo-ohos` download one.
+  `$CARGO_OHOS_TEST_DOWNLOAD_PREBUILT=21` to let `cargo-ohos` download one.
 * For the on-device cases, `hdc` on `PATH` (the SDK's `toolchains` directory), a device or
   emulator, and `ohos-test-runner` 0.1.5 or newer
   (`cargo install --locked ohos-test-runner`).
@@ -62,7 +62,7 @@ the device's own copy.
 |-----------------------------------------|-----------------------------------------------------------------|
 | `CARGO_OHOS_TEST_SDK`                   | the SDK's `native` directory; falls back to `$OHOS_SDK_NATIVE`  |
 | `CARGO_OHOS_TEST_LLVM`                  | an unpacked prebuilt toolchain's `llvm` directory               |
-| `CARGO_OHOS_TEST_DOWNLOAD_PREBUILT`     | prebuilt version to download instead, e.g. `19`                 |
+| `CARGO_OHOS_TEST_DOWNLOAD_PREBUILT`     | prebuilt version to download instead, e.g. `21`                 |
 | `CARGO_OHOS_TEST_TARGETS`               | comma-separated targets to run, e.g. `aarch64,x86_64`           |
 | `CARGO_OHOS_TEST_DEVICES`               | `arch=connect-key` pairs, instead of probing `hdc list targets` |
 | `CARGO_OHOS_TEST_REQUIRE`               | missing prerequisites fail instead of skipping                  |
