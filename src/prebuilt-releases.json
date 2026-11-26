@@ -1,0 +1,56 @@
+[
+  {
+    "tag_name": "toolchain-21.1.8-7fda98",
+    "draft": false,
+    "assets": [
+      {
+        "name": "clang_darwin-arm64-7fda98-20260917.tar.gz",
+        "browser_download_url": "https://github.com/openharmony-rs/ohos-llvm-toolchains/releases/download/toolchain-21.1.8-7fda98/clang_darwin-arm64-7fda98-20260917.tar.gz",
+        "digest": "sha256:f2d9d07213a6372a9534b3c8f6175f6089d566333642fcc51a701506d9e0f9e0",
+        "size": 131173887
+      },
+      {
+        "name": "clang_linux-x86_64-7fda98-20260917.tar.gz",
+        "browser_download_url": "https://github.com/openharmony-rs/ohos-llvm-toolchains/releases/download/toolchain-21.1.8-7fda98/clang_linux-x86_64-7fda98-20260917.tar.gz",
+        "digest": "sha256:e7f8f1f799286234b377d5cb06f97fd115f9d497e326f63060311cf2c30d0fbf",
+        "size": 187618670
+      },
+      {
+        "name": "clang_windows-x86_64-7fda98-20260917.tar.gz",
+        "browser_download_url": "https://github.com/openharmony-rs/ohos-llvm-toolchains/releases/download/toolchain-21.1.8-7fda98/clang_windows-x86_64-7fda98-20260917.tar.gz",
+        "digest": "sha256:4e63adcb628d3d1e65e70e7e9426ce4be9b3c2374aa2c6ee4fbf7c08b322c814",
+        "size": 144496012
+      }
+    ]
+  },
+  {
+    "tag_name": "toolchain-19.1.4-79830f",
+    "draft": false,
+    "assets": [
+      {
+        "name": "clang_darwin-arm64-79830f-20260223.tar.gz",
+        "browser_download_url": "https://github.com/openharmony-rs/ohos-llvm-toolchains/releases/download/toolchain-19.1.4-79830f/clang_darwin-arm64-79830f-20260223.tar.gz",
+        "digest": "sha256:299ebbf362ef4287964eb2c65d63777dbab0f80827a85aaea28d15953596e235",
+        "size": 482432221
+      },
+      {
+        "name": "clang_darwin-x86_64-79830f-20260223.tar.gz",
+        "browser_download_url": "https://github.com/openharmony-rs/ohos-llvm-toolchains/releases/download/toolchain-19.1.4-79830f/clang_darwin-x86_64-79830f-20260223.tar.gz",
+        "digest": "sha256:e29256a9e90dc0e0ca33ae2f23aaf2510b6b06897389369cba3f2c02595cb5b7",
+        "size": 507990276
+      },
+      {
+        "name": "clang_linux-x86_64-79830f-20260223.tar.gz",
+        "browser_download_url": "https://github.com/openharmony-rs/ohos-llvm-toolchains/releases/download/toolchain-19.1.4-79830f/clang_linux-x86_64-79830f-20260223.tar.gz",
+        "digest": "sha256:b718e3402be9ef07f42c7a3167332cd9b4e9d340166fae65c84dd72b494bf3fc",
+        "size": 632835218
+      },
+      {
+        "name": "clang_windows-x86_64-79830f-20260223.tar.gz",
+        "browser_download_url": "https://github.com/openharmony-rs/ohos-llvm-toolchains/releases/download/toolchain-19.1.4-79830f/clang_windows-x86_64-79830f-20260223.tar.gz",
+        "digest": "sha256:2bb235968c6c1dedeb05f55d247a58072b5153cc7e9f1ed2d2c613a0aa8f6647",
+        "size": 421119208
+      }
+    ]
+  }
+]

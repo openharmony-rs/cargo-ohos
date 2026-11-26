@@ -92,14 +92,18 @@ However, if a newer LLVM version is required, it's possible to use a prebuilt ve
 mirrored from
 [openharmony-rs/ohos-llvm-toolchains](https://github.com/openharmony-rs/ohos-llvm-toolchains).
 Use --download-prebuilt and pass the expected major version.
-At the time of writing only version 19 is supported, but future upstream release might make
-more versions available.
+At the time of writing versions 19 and 21 are available.
 
 ```sh
 cargo ohos build --download-prebuilt=19 --release
 ```
 
-The archive is verified against the SHA-256 digest published by GitHub. 
+Each `cargo-ohos` release has the mirror's releases of its time built in, so it always picks the
+same toolchain for e.g. `19`, and needs no network access once that toolchain is cached: a cache
+directory copied from another machine works offline.
+Only versions that none of the built-in releases matches are looked up on GitHub.
+
+The archive is verified against its SHA-256 digest, from the built-in releases or as published by GitHub. 
 When the `gh` CLI is installed and authenticated, its GitHub artifact attestation must also
 identify the mirror repository's `mirror.yml` workflow on `main` as the signer.
 This attests the mirroring and validation workflow, not how OpenHarmony originally built the toolchain.
@@ -199,9 +203,11 @@ explicitly, and starts it if needed.
 
 ## Releasing
 
-Bump the version in `Cargo.toml` and merge the change into `main`. The `Release` workflow then
-builds the binaries and, in the `release` environment, tags the commit as `<version>`, publishes
-the crate to crates.io and publishes the GitHub release with the binaries attached.
+Run `just update-prebuilt-releases` to build the newest LLVM toolchain releases into
+`--download-prebuilt`, then bump the version in `Cargo.toml` and merge the change into `main`.
+The `Release` workflow then builds the binaries and, in the `release` environment, tags the
+commit as `<version>`, publishes the crate to crates.io and publishes the GitHub release with
+the binaries attached.
 If a release did not complete, run the `Release` workflow manually for its tag to finish it.
 
 ## License

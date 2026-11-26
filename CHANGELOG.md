@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `--download-prebuilt` picks from the LLVM releases built into cargo-ohos and needs no network for a cached toolchain; only unknown versions are looked up on GitHub.
+
 ## 0.3.5
 
 - On Windows, `LIBCLANG_PATH` no longer points at a toolchain's `lib` directory when that only holds the import library `libclang.dll.a`.
