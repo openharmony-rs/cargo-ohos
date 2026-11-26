@@ -70,6 +70,8 @@ Downloads of SDKs, toolchains and emulator images use the proxy in `HTTPS_PROXY`
 `HTTP_PROXY`, minus the hosts in `NO_PROXY`, and trust the certificates the operating system
 trusts, so a TLS-intercepting proxy works once its CA certificate is installed in the system's
 certificate store. On Linux, `SSL_CERT_FILE` or `SSL_CERT_DIR` replace that store when set.
+When a server's certificate is rejected, the error lists the authorities of the certificates the
+server presented, which names the proxy's CA if one intercepts the connection.
 
 ### Pre-set flags
 

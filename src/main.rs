@@ -1,5 +1,6 @@
 mod attestation;
 mod build_env;
+mod certificate_error;
 mod download;
 mod emulator;
 mod prebuilt;
