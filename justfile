@@ -27,6 +27,12 @@ test-matrix *args:
 test-all:
     CARGO_OHOS_TEST_REQUIRE=1 cargo test --all-targets
 
+# Build the current openharmony-rs/ohos-llvm-toolchains releases into `--download-prebuilt`.
+update-prebuilt-releases:
+    releases=$(curl -fsSL 'https://api.github.com/repos/openharmony-rs/ohos-llvm-toolchains/releases?per_page=100' \
+        | jq '[.[] | select((.draft | not) and (.tag_name | startswith("toolchain-"))) | {tag_name, draft, assets: [.assets[] | select(.name | startswith("clang_")) | {name, browser_download_url, digest, size}]}]') \
+        && printf '%s\n' "$releases" > src/prebuilt-releases.json
+
 # Boot the emulator of the host's architecture in the background, for the matrix to run on.
 emulator:
     cargo run -- ohos init emulator

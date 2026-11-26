@@ -10,6 +10,9 @@ const SIGNER: attestation::Signer = attestation::Signer {
     workflow: "openharmony-rs/ohos-llvm-toolchains/.github/workflows/mirror.yml",
 };
 const CACHE_SUBDIR: &str = "ohos-llvm";
+/// The toolchain releases of the mirror when this version of cargo-ohos was made, in the shape
+/// of `RELEASES_URL`'s response. `just update-prebuilt-releases` regenerates it.
+const KNOWN_RELEASES: &str = include_str!("prebuilt-releases.json");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Host {
@@ -27,14 +30,38 @@ struct Selection {
 
 pub fn resolve(requested: &str) -> Result<PathBuf, String> {
     validate_version(requested)?;
-    let releases = download::releases(RELEASES_URL, CACHE_SUBDIR)?;
-    let selection = select(
-        releases,
+    let selection = select_known_or(
         requested,
         std::env::consts::OS,
         std::env::consts::ARCH,
+        || {
+            eprintln!(
+                "note: looking up the prebuilt OpenHarmony LLVM releases matching `{requested}` on GitHub"
+            );
+            download::releases(RELEASES_URL, CACHE_SUBDIR)
+        },
     )?;
     install(&selection)
+}
+
+fn known_releases() -> Vec<download::Release> {
+    serde_json::from_str(KNOWN_RELEASES).expect("the built-in prebuilt LLVM releases are valid")
+}
+
+/// Select from the releases built into cargo-ohos, so that the versions they cover need no
+/// network access once installed, and resolve to the same toolchain for a given cargo-ohos.
+/// Only if none of them has a toolchain for the host are the releases from `online` used.
+fn select_known_or(
+    requested: &str,
+    os: &str,
+    arch: &str,
+    online: impl FnOnce() -> Result<Vec<download::Release>, String>,
+) -> Result<Selection, String> {
+    match select(known_releases(), requested, os, arch) {
+        Ok(selection) => Ok(selection),
+        Err(error) if host(os, arch).is_none() => Err(error),
+        Err(_) => select(online()?, requested, os, arch),
+    }
 }
 
 pub fn validate_version(version: &str) -> Result<(), String> {
@@ -272,6 +299,86 @@ mod tests {
         assert_eq!(selected.version, "19.1.7-newer");
         assert_eq!(selected.asset.name, "clang_darwin-arm64-newer.tar.gz");
         assert_eq!(selected.sha256, "a".repeat(64));
+    }
+
+    #[test]
+    fn known_releases_pin_an_archive_per_host() {
+        let hosts = [
+            ("linux", "x86_64"),
+            ("macos", "aarch64"),
+            ("macos", "x86_64"),
+            ("windows", "x86_64"),
+        ];
+        let releases = known_releases();
+        assert!(!releases.is_empty());
+        for release in releases {
+            assert!(!release.draft, "{}", release.tag_name);
+            let version = release.tag_name.strip_prefix("toolchain-").unwrap();
+            for asset in &release.assets {
+                assert_eq!(
+                    asset.browser_download_url,
+                    format!(
+                        "https://github.com/openharmony-rs/ohos-llvm-toolchains/releases/download/{}/{}",
+                        release.tag_name, asset.name
+                    )
+                );
+                let (os, arch) = hosts
+                    .into_iter()
+                    .find(|&(os, arch)| {
+                        asset.name.starts_with(host(os, arch).unwrap().asset_prefix)
+                    })
+                    .unwrap_or_else(|| panic!("`{}` is for no supported host", asset.name));
+                let selection = select(known_releases(), version, os, arch).unwrap();
+                assert_eq!(selection.asset.name, asset.name);
+            }
+        }
+    }
+
+    #[test]
+    fn known_versions_need_no_lookup() {
+        for release in known_releases() {
+            let major = release
+                .tag_name
+                .strip_prefix("toolchain-")
+                .unwrap()
+                .split('.')
+                .next()
+                .unwrap();
+            let selection = select_known_or(major, "linux", "x86_64", || {
+                panic!("looked up the known version `{major}`")
+            })
+            .unwrap();
+            assert_eq!(selection.version.split('.').next(), Some(major));
+        }
+    }
+
+    #[test]
+    fn unknown_versions_are_looked_up() {
+        let selection = select_known_or("99", "linux", "x86_64", || {
+            Ok(vec![release(
+                "toolchain-99.1.0-online",
+                "clang_linux-x86_64-online.tar.gz",
+            )])
+        })
+        .unwrap();
+        assert_eq!(selection.version, "99.1.0-online");
+        assert_eq!(selection.asset.name, "clang_linux-x86_64-online.tar.gz");
+
+        let error =
+            select_known_or("99", "linux", "x86_64", || Err("offline".to_owned())).unwrap_err();
+        assert_eq!(error, "offline");
+    }
+
+    #[test]
+    fn unsupported_hosts_are_not_looked_up() {
+        let error = select_known_or("19", "linux", "aarch64", || {
+            panic!("looked up a toolchain for an unsupported host")
+        })
+        .unwrap_err();
+        assert!(
+            error.contains("not available for host linux-aarch64"),
+            "{error}"
+        );
     }
 
     #[test]
