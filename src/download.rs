@@ -98,9 +98,11 @@ fn cache_is_fresh(path: &Path) -> bool {
 }
 
 fn request(url: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
-    build_request(url)
-        .call()
-        .map_err(|e| format!("request to {url} failed: {e}"))
+    build_request(url).call().map_err(|e| {
+        let explanation = crate::certificate_error::explain(&e, url, agent().config().proxy())
+            .unwrap_or_default();
+        format!("request to {url} failed: {e}{explanation}")
+    })
 }
 
 /// The agent for all requests. Unlike ureq's default, which only trusts the Mozilla roots it
