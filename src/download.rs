@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use flate2::read::GzDecoder;
@@ -102,8 +103,26 @@ fn request(url: &str) -> Result<ureq::http::Response<ureq::Body>, String> {
         .map_err(|e| format!("request to {url} failed: {e}"))
 }
 
+/// The agent for all requests. Unlike ureq's default, which only trusts the Mozilla roots it
+/// bundles, it verifies certificates like the operating system does, so that a TLS-intercepting
+/// proxy whose CA the system trusts works.
+fn agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .tls_config(
+                ureq::tls::TlsConfig::builder()
+                    .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                    .build(),
+            )
+            .build()
+            .new_agent()
+    })
+}
+
 fn build_request(url: &str) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
-    let mut request = ureq::get(url)
+    let mut request = agent()
+        .get(url)
         .header("User-Agent", USER_AGENT)
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28");
@@ -457,6 +476,14 @@ mod tests {
             body: None,
             assets: Vec::new(),
         }
+    }
+
+    #[test]
+    fn verifies_certificates_with_the_platform_roots() {
+        assert!(matches!(
+            agent().config().tls_config().root_certs(),
+            ureq::tls::RootCerts::PlatformVerifier
+        ));
     }
 
     #[test]

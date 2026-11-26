@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Downloads trust the operating system's root certificates instead of only the bundled Mozilla roots, so they work behind TLS-intercepting proxies whose CA the system trusts.
+
 ## 0.3.6
 
 - `--download-prebuilt` picks from the LLVM releases built into cargo-ohos and needs no network for a cached toolchain; only unknown versions are looked up on GitHub.
