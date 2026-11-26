@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.6
 
 - `--download-prebuilt` picks from the LLVM releases built into cargo-ohos and needs no network for a cached toolchain; only unknown versions are looked up on GitHub.
 
