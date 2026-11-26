@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.7
 
 - Downloads trust the operating system's root certificates instead of only the bundled Mozilla roots, so they work behind TLS-intercepting proxies whose CA the system trusts.
 
