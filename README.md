@@ -64,6 +64,13 @@ point at an SDK is an error rather than a reason to fall back. The downloaded SD
 `~/.cache/cargo-ohos/ohos-sdk` on Linux, `~/Library/Caches/cargo-ohos/ohos-sdk` on macOS, and
 `%LOCALAPPDATA%\cargo-ohos\ohos-sdk` on Windows.
 
+### Downloads behind a proxy
+
+Downloads of SDKs, toolchains and emulator images use the proxy in `HTTPS_PROXY`, `ALL_PROXY` or
+`HTTP_PROXY`, minus the hosts in `NO_PROXY`, and trust the certificates the operating system
+trusts, so a TLS-intercepting proxy works once its CA certificate is installed in the system's
+certificate store. On Linux, `SSL_CERT_FILE` or `SSL_CERT_DIR` replace that store when set.
+
 ### Pre-set flags
 
 The cargo subcommands (`cargo ohos build`, ...) prepend their flags to any user-defined
